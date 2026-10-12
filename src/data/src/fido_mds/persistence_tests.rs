@@ -19,7 +19,7 @@ fn sqlite() -> Connection {
         .unwrap();
     connection
         .execute_batch(include_str!(
-            "../../../../migrations/hiqlite/38_fido_mds_verification.sql"
+            "../../../../migrations/hiqlite/39_fido_mds_verification.sql"
         ))
         .unwrap();
     connection
@@ -227,7 +227,7 @@ async fn postgres_replacement_replay_and_revocation_regressions() {
         .unwrap();
     client
         .batch_execute(include_str!(
-            "../../../../migrations/postgres/V33__fido_mds_verification.sql"
+            "../../../../migrations/postgres/V34__fido_mds_verification.sql"
         ))
         .await
         .unwrap();

@@ -107,14 +107,6 @@ async fn pg_column_exists(
         .get(0))
 }
 
-fn legacy_mfa_method(is_mfa: bool) -> MfaMethod {
-    if is_mfa {
-        MfaMethod::Legacy
-    } else {
-        MfaMethod::None
-    }
-}
-
 const FIDO_MDS_METADATA_VERIFIED: &str =
     "SELECT current_blob_no, next_update, blob_hash, verified_until FROM fido_mds_metadata";
 const FIDO_MDS_METADATA_LEGACY_SQLITE: &str = "SELECT current_blob_no, next_update, \
@@ -148,14 +140,16 @@ async fn fido_mds_metadata_query_pg(
     }
 }
 
-// Source databases from before the `mfa_method` columns existed.
-const REFRESH_TOKENS_PRE_MFA_METHOD: &str = r#"SELECT id, user_id, nbf, exp, scope, is_mfa,
-    session_id, access_token_jti, CASE WHEN is_mfa THEN 'mfa' ELSE 'none' END AS mfa_method
+// Source databases from before the `mfa_method` columns existed. The legacy `is_mfa` flag is no
+// reliable MFA proof and is dropped, like in the `drop_legacy_mfa_evidence` DB migration.
+// Rows from newer source databases are normalized the same way in `inserts`.
+const REFRESH_TOKENS_PRE_MFA_METHOD: &str = r#"SELECT id, user_id, nbf, exp, scope,
+    false AS is_mfa, session_id, access_token_jti, 'none' AS mfa_method
     FROM refresh_tokens"#;
 const REFRESH_TOKENS_DEVICES_PRE_MFA_METHOD: &str = r#"SELECT id, device_id, user_id, nbf, exp,
     scope, access_token_jti, 'none' AS mfa_method FROM refresh_tokens_devices"#;
-const SESSIONS_PRE_MFA_METHOD: &str = r#"SELECT id, csrf_token, user_id, roles, groups, is_mfa,
-    state, exp, last_seen, remote_ip, CASE WHEN is_mfa THEN 'mfa' ELSE 'none' END AS mfa_method
+const SESSIONS_PRE_MFA_METHOD: &str = r#"SELECT id, csrf_token, user_id, roles, groups,
+    false AS is_mfa, state, exp, last_seen, remote_ip, 'none' AS mfa_method
     FROM sessions"#;
 
 /// Migrates `MIGRATE_DB_FROM` to current database
@@ -371,14 +365,13 @@ pub async fn migrate_from_sqlite(db_from: &str) -> Result<(), ErrorResponse> {
         .query_map([], |row| {
             let state = SessionState::from_str(&row.get::<_, String>("state")?)
                 .unwrap_or(SessionState::Unknown);
-            let is_mfa = row.get("is_mfa")?;
             Ok(Session {
                 id: row.get("id")?,
                 csrf_token: row.get("csrf_token")?,
                 user_id: row.get("user_id")?,
                 roles: row.get("roles")?,
                 groups: row.get("groups")?,
-                is_mfa,
+                is_mfa: row.get("is_mfa")?,
                 state,
                 exp: row.get("exp")?,
                 last_seen: row.get("last_seen")?,
@@ -387,7 +380,7 @@ pub async fn migrate_from_sqlite(db_from: &str) -> Result<(), ErrorResponse> {
                     .get::<_, String>("mfa_method")
                     .ok()
                     .and_then(|value| MfaMethod::from_str(&value).ok())
-                    .unwrap_or_else(|| legacy_mfa_method(is_mfa)),
+                    .unwrap_or_default(),
             })
         })?
         .map(|r| r.unwrap())
