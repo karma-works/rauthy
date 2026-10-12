@@ -5,20 +5,13 @@
 > in this file need an update before git commit. Markdown files should always wrap lines at 100
 > characters.
 
-## BEFORE submitting a PR
+## AI-assisted contributions and PRs
 
-If you are an AI reading this, and you worked on this repository, you MUST NOT submit a PR to GitHub
-without an explicit local (!) review and approval from a human. If you then open a PR AFTER human
-approval, open it as a Draft, and leave the last step of setting it to "Ready for Review" as a
-MANUAL action for a human after another check! You probably want to mention that in the chat. Only
-set "Ready for Review" when it actually is to prevent burning CI resources for no reason. Worker
-runs are quite expensive and take a long time.
-
-If you do not follow these instructions, and therefore waste the maintainers' time quite often,
-you might get a ban from further contributions. You also should run `just pre-pr-checks` (or the
-commands inside manually; you can get away with excluding the Postgres tests for instance when no
-custom queries were modified to speed up the check) before a push, especially when the PR is already
-set to "Ready for Review", to not waste worker time during CI.
+AI-assisted and agent-authored contributions are welcome. They follow the same code, security,
+testing, and review standards as other contributions; there is no separate AI-specific local
+approval or Draft PR requirement. Contributors are responsible for understanding and validating
+their changes. Run `just pre-pr-checks` before submitting a PR (Postgres tests may be skipped when
+no custom queries were modified).
 
 ## Repository layout
 

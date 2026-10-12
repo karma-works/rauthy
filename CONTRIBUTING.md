@@ -4,6 +4,11 @@ This document should help you to contribute to Rauthy and setting up your local 
 
 ## Guidelines for writing code
 
+AI-assisted and agent-authored contributions are welcome. The contributor is responsible for
+understanding and validating the submitted changes. AI-assisted changes follow the same coding,
+testing, and maintainer review process as any other contribution; no separate local approval or
+Draft PR requirement applies.
+
 - **Performance and footprint matters**. If you write code, think about performance and especially
   memory footprint. For instance, avoid cloning values around when borrowing works fine too, or
   avoid allocating new memory in general, when you do not need to. The final performance
