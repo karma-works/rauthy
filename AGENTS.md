@@ -28,6 +28,8 @@ set to "Ready for Review", to not waste worker time during CI.
 - `book/` — mdBook source for user-facing docs (`docs/` = built site). Not contributor
   documentation. Building the book currently requires `mdbook-0.4`
 - `rauthy-client/` — Rust client library + examples
+- `vendor/` — Compatibility-preserving security patches; provenance in `vendor/README.md`
+- `assets/build_tools/` — Checksum-pinned tool bootstrap and reviewed dependency locks
 - `CONTRIBUTING.md` provides important information for getting started
 
 ## `just` recipes ([justfile](./justfile))

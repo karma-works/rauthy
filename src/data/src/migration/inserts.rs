@@ -710,23 +710,41 @@ VALUES ($1, $2)"#;
     Ok(())
 }
 
+pub(super) const FIDO_MDS_METADATA_INSERT: &str = r#"
+INSERT INTO fido_mds_metadata (current_blob_no, next_update, blob_hash, verified_until)
+VALUES ($1, $2, $3, $4)"#;
+
 pub async fn fido_mds_metadata(data_before: Vec<MdsMetadata>) -> Result<(), ErrorResponse> {
     let sql_1 = "DELETE FROM fido_mds_metadata";
-    let sql_2 = r#"
-INSERT INTO fido_mds_metadata (current_blob_no, next_update)
-VALUES ($1, $2)"#;
 
     if is_hiqlite() {
         DB::hql().execute(sql_1, params!()).await?;
         for b in data_before {
             DB::hql()
-                .execute(sql_2, params!(b.current_blob_no, b.next_update))
+                .execute(
+                    FIDO_MDS_METADATA_INSERT,
+                    params!(
+                        b.current_blob_no,
+                        b.next_update,
+                        b.blob_hash,
+                        b.verified_until
+                    ),
+                )
                 .await?;
         }
     } else {
         DB::pg_execute(sql_1, &[]).await?;
         for b in data_before {
-            DB::pg_execute(sql_2, &[&b.current_blob_no, &b.next_update]).await?;
+            DB::pg_execute(
+                FIDO_MDS_METADATA_INSERT,
+                &[
+                    &b.current_blob_no,
+                    &b.next_update,
+                    &b.blob_hash,
+                    &b.verified_until,
+                ],
+            )
+            .await?;
         }
     }
     Ok(())

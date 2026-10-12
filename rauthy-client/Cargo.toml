@@ -28,7 +28,7 @@ axum = [
 backchannel-logout = []
 device-code = []
 qrcode = ["device-code", "dep:qrcode"]
-rsa = ["dep:hmac-sha256", "dep:hmac-sha512", "dep:rsa"]
+rsa = ["dep:ring"]
 scim = ["dep:constant_time_eq"]
 userinfo = []
 
@@ -41,25 +41,22 @@ chacha20poly1305 = { version = "0.11", features = ["rand_core", "zeroize"] }
 chrono = { version = "0.4.31", default-features = false, features = ["clock", "serde", "std"] }
 constant_time_eq = { version = "0.6.1", optional = true }
 ed25519-compact = "2.2"
-hmac-sha256 = { version = "1.1.14", optional = true, features = ["traits010"] }
-hmac-sha512 = { version = "1.1.12", optional = true, features = ["sha384", "traits010"] }
 http = "1"
 percent-encoding = "2"
 rand = "0.10"
 reqwest = { version = "0.13", default-features = false, features = [
     "brotli", "form", "json", "rustls"
 ] }
-rsa = { version = "0.9.10", optional = true, features = ["sha2"] }
+ring = { version = "0.17.14", optional = true }
 serde = { version = "1.0.180", features = ["derive"] }
 serde_json = "1.0.100"
-# is bound to `rsa` because of JWT verification
 sha2 = "0.10.9"
 thiserror = { version = "2" }
 tokio = { version = "1.34", features = ["macros"] }
 tracing = "0.1.40"
 
 # actix-web
-actix-web = { version = "4.4", optional = true, features = [] }
+actix-web = { version = "4.15", optional = true, default-features = false, features = ["cookies"] }
 
 # axum
 axum = { version = "0.8", optional = true, features = [] }

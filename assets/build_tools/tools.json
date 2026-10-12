@@ -1,0 +1,47 @@
+{
+  "just": {
+    "version": "1.58.0",
+    "sha256": "37997f0dfb8eacdef28ba4648987a619dcee7832c4e14ac268e1908022f55e79",
+    "installed_version": "1.58.0"
+  },
+  "wasm-pack": {
+    "version": "0.15.0",
+    "sha256": "a5368ae4d49229ac288eca4ea3a689fa554b3f205732f1dab3710839b73febb1",
+    "installed_version": "0.15.0-rauthy.1",
+    "patch": "wasm-pack-no-update.patch"
+  },
+  "wasm-bindgen-cli": {
+    "version": "0.2.129",
+    "sha256": "5fd044ed178958a277eeaf21f3d384287b0f4428d38c019141df01da9c03168c",
+    "installed_version": "0.2.129"
+  },
+  "mdbook": {
+    "version": "0.4.52",
+    "sha256": "93c284d2855916af7c5919cf9ad897cfc77d3c2db6f55429c7cfb769182030ec",
+    "installed_version": "0.4.52"
+  },
+  "mdbook-admonish": {
+    "version": "1.20.0",
+    "sha256": "06f63d7e50051134af1ec111efd45444df5f1238b54f1a987bb6fc6323822a79",
+    "installed_version": "1.20.0"
+  },
+  "cargo": {
+    "version": "0.96.0",
+    "installed_version": "0.96.0-rauthy.1",
+    "sha256": "4653299848aaa3c7c34a06a9c1f9248e1340f8d23aa2bd1681a131a070c1cd06",
+    "patch": "cargo-dependencies.patch",
+    "builder_only": true,
+    "features": [
+      "http-transport-curl",
+      "vendored-libgit2"
+    ],
+    "build_environment": {
+      "OPENSSL_NO_VENDOR": "1",
+      "OPENSSL_DIR": "/usr/local",
+      "CFG_RELEASE_CHANNEL": "stable",
+      "CARGO_PROFILE_RELEASE_OPT_LEVEL": "1",
+      "CFG_RELEASE": "1.95.0",
+      "CFG_VER_DESCRIPTION": "rauthy.1 reviewed TLS bootstrap"
+    }
+  }
+}

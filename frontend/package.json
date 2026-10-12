@@ -10,7 +10,7 @@
         "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
         "test": "playwright test",
         "test:webauthn": "svelte-kit sync && node --test tests/webauthn-auth.node.mjs",
-        "test:redirect-uri": "node --test tests/redirect-uri.node.mjs",
+        "test:redirect-uri": "svelte-kit sync && node --test tests/redirect-uri.node.mjs",
         "test:password-reset": "npm run build && node --test tests/password-reset.node.mjs",
         "lint": "prettier --check . && eslint .",
         "format": "./node_modules/prettier/bin/prettier.cjs --write .",
@@ -22,7 +22,6 @@
         "@sveltejs/adapter-static": "^3.0.0",
         "@sveltejs/kit": "^2.52.2",
         "@sveltejs/vite-plugin-svelte": "^7.1.2",
-        "@swc/core": "^1.11.4",
         "@types/node": "^25.9.0",
         "base64-arraybuffer": "^1.0.2",
         "eslint": "^10.0.1",
@@ -34,8 +33,12 @@
         "svelte-check": "^4.3.4",
         "typescript": "^5.5.0",
         "vite": "^8.0.16",
-        "vite-plugin-top-level-await": "^1.5.0",
         "vite-plugin-wasm": "^3.4.1"
+    },
+    "overrides": {
+        "@sveltejs/kit": {
+            "cookie": "0.7.2"
+        }
     },
     "type": "module"
 }

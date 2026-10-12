@@ -42,9 +42,10 @@ a PR ready for review, all code must be formatted.
 To work with this project, you need to have the following tools available on your system:
 
 - a BASH shell
-- [just](https://github.com/casey/just)
-- at least Rust v1.88
-- `npm`
+- Python 3.11 or newer and `patch`
+- [just](https://github.com/casey/just) v1.58.0, installed using the reviewed bootstrap below
+- Rust v1.95.0, selected by `rust-toolchain.toml`
+- Node.js v26.11.1 and `npm` (the build pin includes fixed OpenSSL 3.5.9)
 - `docker` / `podman` / Apple `container` / anything compatible
 
 > `npm` is not strictly necessary, but recommended to have. If you just want to build the static UI
@@ -54,14 +55,25 @@ To work with this project, you need to have the following tools available on you
 > version control with each new release, and this recipe will extract the files into the correct
 > locations.
 
+Install `just` from the pinned source archive and reviewed dependency lock before using recipes:
+
+```
+python3 assets/build_tools/install.py just
+```
+
+See [build tool maintenance](assets/build_tools/README.md) for versions, checksums, and
+lock updates.
+
 ### Building from source
 
-If you only care about building from source and don't need any testing or development, you need to
-do 3 things:
+To build from source without testing or development, use the following steps:
 
 - `just setup`
 - `just build-ui`
-- `cargo build --release`
+- `cargo build --release --locked`
+
+Setup prepares the verified FIDO metadata asset required by release builds. Run `just fido-mds-prep`
+to refresh it before a release build when reusing an earlier setup.
 
 This will build a release binary for your current platform in the simplest form. You can also build
 the multi arch container image. However, you cannot just use `just build` (like explained further
@@ -100,9 +112,22 @@ If you start inside a freshly cloned project, you first need to execute
 just setup
 ```
 
-which will run `npm install` for the frontend, to make all the `node_modules` available for either
-building the UI or running it in development mode. You only need to run this once or after a version
-bump, which will typically bump all dependencies and therefore needs another `npm install`.
+which runs `npm ci` for the frontend using the checked-in lockfile. Run it again after a dependency
+change. Dependency install scripts are disabled in `frontend/.npmrc`; explicit build and test
+commands still run. Setup installs checksum-verified WASM and mdBook source archives with reviewed
+dependency locks. The local wasm-pack 0.15.0-rauthy.1 patch disables its automatic network update
+check; tool versions are updated deliberately. Keep `wasm-bindgen-cli` in
+`assets/build_tools/tools.json` synchronized with the
+`wasm-bindgen` version in `Cargo.lock`; WASM builds fail instead of installing another CLI.
+Optional `wasm-opt` is disabled in the WASM manifest, keeping ambient optimizers
+from changing build output.
+
+Use `just update` only when intentionally reviewing dependency updates. The npm release-age filter
+requires a supporting npm version; npm v11.19.1 is used for local dependency verification. Keep the
+lockfiles in the same change as their manifests. SvelteKit 2's `cookie` override pins the compatible
+0.7.2 security fix until its upstream dependency is updated.
+The pinned stable Rust 1.95 toolchain does not enforce Cargo's nightly release-age settings.
+Review publication dates and current advisories when intentionally refreshing Cargo locks.
 
 After the `setup`, you need:
 
@@ -383,6 +408,9 @@ In such a case, you can `just test-backend`, which will start the test backend w
 you then `just test your_unit_test`, it will only run the single integration test without starting
 the backend automatically.
 
+Set `RAUTHY_TEST_BACKEND_URL` to use an isolated backend with the integration-test helpers instead
+of the default `http://localhost:8081/auth/v1`.
+
 ### Password Reset UI Checks
 
 From `frontend/`, run `npm run test:webauthn` for the endpoint-routing checks
@@ -409,17 +437,34 @@ If you don't have a registry available, you can also disable auto-push with for 
 > a very long time to do a release build, especially twice. Just as a reference, on my Ryzen 9950X
 > it currently takes ~10 minutes.
 
-> There is a `just build-builder` recipe, which you don't need to worry about. A new builder is only
-> built when e.g. a new Rust version needs to be used. Just use the existing builder image from
-> GitHub, which is the default anyway.
+`just build` builds the reviewed `Dockerfile_builder` locally and runs its immutable image ID for
+both targets. Docker reuses its cached layers. Publishing a replacement builder image through
+`just build-builder` is a separate maintainer action.
+
+Container inputs and the checkout action are pinned to reviewed digests or commit IDs. When updating
+a container, verify its registry manifest with `docker buildx imagetools inspect IMAGE:TAG` and use
+the index digest so both amd64 and arm64 remain available. Update matching references in `justfile`,
+the Dockerfiles, and the CI workflow together. The inherited CI builder has a single image
+manifest. The builder
+Dockerfile copies Node.js from a pinned Debian bookworm image without a NodeSource bootstrap script.
+Its APT sources use signed Debian and security snapshots from 2026-10-10. Signature checks remain
+enabled; snapshot expiry checks are disabled because these deliberately fixed indexes age. Review
+and update the dated snapshots together with the container digests for security updates.
+CI selects Node.js 26.11.1 with the pinned official setup-node action and upgrades the existing
+builder's OS packages from these same signed snapshots. Both builders then compile checksum-pinned
+OpenSSL 3.5.9 with Clang and replace the actual shared TLS libraries before installing reviewed
+build tools. Python's loaded version and certificate validation are checked during installation.
+Node 26.11.1 includes fixed OpenSSL 3.5.9 as well; replacing system libraries alone cannot fix
+Node's embedded copy. See `assets/build_tools/README.md` for bootstrap provenance and maintenance.
 
 ## Updating the Book
 
 You are welcome to update the documentation in the Rauthy book. You will need `mdbook` and
 `mdbook-admonish`. If you don't have them:
 
-- `cargo install mdbook --version 0.4.52`
-- `cargo install mdbook-admonish`
+```
+python3 assets/build_tools/install.py mdbook mdbook-admonish
+```
 
 Once installed:
 

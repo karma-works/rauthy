@@ -380,10 +380,12 @@ mod tests {
     use actix_web::http;
     use chrono::Utc;
     use ed25519_compact::Noise;
+    use openssl::hash::MessageDigest;
+    use openssl::pkey::PKey;
+    use openssl::rsa::Rsa;
+    use openssl::sign::Signer;
     use rauthy_common::constants::DPOP_TOKEN_ENDPOINT;
     use rauthy_common::utils::{base64_url_encode, base64_url_no_pad_encode};
-    use rsa::sha2::Sha256;
-    use rsa::traits::PublicKeyParts;
     use std::fmt::Write;
 
     #[test]
@@ -440,11 +442,9 @@ mod tests {
     #[test]
     fn test_dpop_validation_rsa() {
         // manually build up a dpop token
-        let mut rng = rand_08::thread_rng();
-        let rsa_sk = rsa::RsaPrivateKey::new(&mut rng, 2048).unwrap();
-        let rsa_pk = rsa_sk.to_public_key();
-        let n = rsa_pk.n().to_bytes_be();
-        let e = rsa_pk.e().to_bytes_be();
+        let rsa_sk = Rsa::generate(2048).unwrap();
+        let n = rsa_sk.n().to_vec();
+        let e = rsa_sk.e().to_vec();
 
         let header = DPoPHeader {
             typ: "dpop+jwt".to_string(),
@@ -481,10 +481,10 @@ mod tests {
         let claims_b64 = base64_url_no_pad_encode(claims_json.as_bytes());
         let mut token_raw = format!("{}.{}", header_b64, claims_b64);
 
-        let hash = hmac_sha256::Hash::hash(token_raw.as_bytes());
-        let signature = rsa_sk
-            .sign(rsa::Pkcs1v15Sign::new::<Sha256>(), hash.as_slice())
-            .unwrap();
+        let key = PKey::from_rsa(rsa_sk).unwrap();
+        let mut signer = Signer::new(MessageDigest::sha256(), &key).unwrap();
+        signer.update(token_raw.as_bytes()).unwrap();
+        let signature = signer.sign_to_vec().unwrap();
         let sig_b64 = base64_url_no_pad_encode(&signature);
         write!(token_raw, ".{}", sig_b64).unwrap();
 

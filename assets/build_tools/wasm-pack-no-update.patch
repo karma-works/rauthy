@@ -1,0 +1,75 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -12,7 +12,7 @@
+ [package]
+ edition = "2021"
+ name = "wasm-pack"
+-version = "0.15.0"
++version = "0.15.0-rauthy.1"
+ authors = [
+     "Ashley Williams <ashley666ashley@gmail.com>",
+     "Jesper Håkansson <jesper@jesperh.se>",
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -12,36 +12,9 @@
+ use clap::Parser;
+ use std::env;
+ use std::panic;
+-use std::sync::mpsc;
+-use std::thread;
+-use wasm_pack::{
+-    build::{self, WasmPackVersion},
+-    command::run_wasm_pack,
+-    Cli, PBAR,
+-};
++use wasm_pack::{command::run_wasm_pack, Cli, PBAR};
+ 
+ mod installer;
+-
+-fn background_check_for_updates() -> mpsc::Receiver<Result<WasmPackVersion>> {
+-    let (sender, receiver) = mpsc::channel();
+-
+-    let _detached_thread = thread::spawn(move || {
+-        let wasm_pack_version = build::check_wasm_pack_versions();
+-
+-        if let Ok(wasm_pack_version) = wasm_pack_version {
+-            if !wasm_pack_version.local.is_empty()
+-                && !wasm_pack_version.latest.is_empty()
+-                && wasm_pack_version.local != wasm_pack_version.latest
+-            {
+-                let _ = sender.send(Ok(wasm_pack_version));
+-            }
+-        } else {
+-            let _ = sender.send(wasm_pack_version);
+-        }
+-    });
+-
+-    receiver
+-}
+ 
+ fn main() {
+     env_logger::init();
+@@ -58,8 +31,6 @@
+ }
+ 
+ fn run() -> Result<()> {
+-    let wasm_pack_version = background_check_for_updates();
+-
+     // Deprecate `init`
+     if let Some("init") = env::args().nth(1).as_ref().map(|arg| arg.as_str()) {
+         println!("wasm-pack init is deprecated, consider using wasm-pack build");
+@@ -88,14 +59,6 @@
+ 
+     run_wasm_pack(args.cmd)?;
+ 
+-    if let Ok(wasm_pack_version) = wasm_pack_version.try_recv() {
+-        match wasm_pack_version {
+-            Ok(wasm_pack_version) =>
+-                PBAR.warn(&format!("There's a newer version of wasm-pack available, the new version is: {}, you are using: {}. \
+-                To update, navigate to: https://wasm-bindgen.github.io/wasm-pack/installer/", wasm_pack_version.latest, wasm_pack_version.local)),
+-            Err(err) => PBAR.warn(&format!("{}", err))
+-        }
+-    }
+ 
+     Ok(())
+ }

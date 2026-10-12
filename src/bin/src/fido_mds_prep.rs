@@ -4,20 +4,19 @@
 //! the serialized [`MdsDataset`] to the asset the server embeds at compile time. Run it via the
 //! `just fido-mds-prep` recipe rather than directly.
 //!
-//! The asset is not checked into the repository: `just setup` and `just build` fetch it. Note that
-//! `https` only authenticates the server we download from, it does not verify the blob itself.
-//! Anything but `https` is therefore rejected, and a `--source` pointing at a local file is
-//! trusted as far as whoever put the file there.
+//! The prepared asset retains the signed BLOB and fresh signing-chain CRLs. HTTPS protects the
+//! transport; the same pinned-root/signature/revocation checks apply to URLs and local BLOB files.
+//! Verification still requires network access to the signing certificates' issuer CRLs.
 
 use clap::Parser;
 use rauthy_data::fido_mds::dataset::MdsDataset;
-use reqwest::tls;
+use rauthy_data::fido_mds::verified::{MAX_BLOB_BYTES, MDS_SOURCE, fetch_bounded, http_client};
 use std::error::Error;
+use std::io::Read;
 use std::path::PathBuf;
-use std::str::FromStr;
 use std::time::Duration;
 
-const DEFAULT_SOURCE: &str = "https://mds.fidoalliance.org/";
+const DEFAULT_SOURCE: &str = MDS_SOURCE;
 const DEFAULT_OUT: &str = "assets/fido_mds/dataset.bin";
 
 #[derive(Debug, Parser)]
@@ -42,21 +41,7 @@ struct Args {
 const DOWNLOAD_ATTEMPTS: u32 = 5;
 
 async fn download(source: &str) -> Result<String, Box<dyn Error>> {
-    // reqwest follows redirects by default, and the alliance may redirect. Downgrading to plain
-    // `http` on a hop would give up exactly the transport protection the caller checked for, so
-    // every hop has to stay on `https` too.
-    let client = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::custom(|attempt| {
-            if attempt.url().scheme() == "https" {
-                attempt.follow()
-            } else {
-                attempt.error("refusing to follow a redirect off https")
-            }
-        }))
-        .connect_timeout(Duration::from_secs(10))
-        .timeout(Duration::from_secs(10))
-        .tls_version_min(tls::Version::TLS_1_2)
-        .build()?;
+    let client = http_client().map_err(|err| err.to_string())?;
 
     let mut last_err = String::new();
     for attempt in 1..=DOWNLOAD_ATTEMPTS {
@@ -66,18 +51,16 @@ async fn download(source: &str) -> Result<String, Box<dyn Error>> {
             tokio::time::sleep(backoff).await;
         }
 
-        let res = client.get(source).send().await?;
-        let status = res.status();
-        let body = res.text().await?;
-
-        // a blob is `header.payload.signature`, so anything without two dots is not one
-        if status.is_success() && body.trim().split('.').count() == 3 {
-            return Ok(body);
+        match fetch_bounded(&client, source, MAX_BLOB_BYTES).await {
+            Ok(bytes) => {
+                let body = String::from_utf8(bytes)?;
+                if body.trim().split('.').count() == 3 {
+                    return Ok(body);
+                }
+                last_err = "the metadata service did not return a compact JWS".into();
+            }
+            Err(err) => last_err = err.to_string(),
         }
-        last_err = format!(
-            "the metadata service answered {status} with {:?}",
-            body.trim().chars().take(120).collect::<String>()
-        );
     }
 
     Err(format!("giving up after {DOWNLOAD_ATTEMPTS} attempts, {last_err}").into())
@@ -100,19 +83,28 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .into());
     } else {
         println!("Reading FIDO MDS blob from {}", args.source);
-        std::fs::read_to_string(&args.source)?
+        let mut bytes = Vec::new();
+        std::fs::File::open(&args.source)?
+            .take(MAX_BLOB_BYTES as u64 + 1)
+            .read_to_end(&mut bytes)?;
+        if bytes.len() > MAX_BLOB_BYTES {
+            return Err("FIDO MDS input exceeds the size limit".into());
+        }
+        String::from_utf8(bytes)?
     };
 
-    let dataset = MdsDataset::from_str(jwt.trim()).map_err(|err| err.to_string())?;
-    let next_update = chrono::DateTime::from_timestamp(dataset.next_update_ts, 0)
+    let dataset = MdsDataset::from_jwt(jwt.trim())
+        .await
+        .map_err(|err| err.to_string())?;
+    let next_update = chrono::DateTime::from_timestamp(dataset.next_update_ts(), 0)
         .map(|dt| dt.date_naive().to_string())
-        .unwrap_or_else(|| dataset.next_update_ts.to_string());
+        .unwrap_or_else(|| dataset.next_update_ts().to_string());
     println!(
         "Prepared blob no. {}, nextUpdate {}: {} entries, {} distinct root certs",
-        dataset.blob_no,
+        dataset.blob_no(),
         next_update,
-        dataset.entries.len(),
-        dataset.certs.len(),
+        dataset.entries().len(),
+        dataset.certs().len(),
     );
 
     let bytes = dataset.serialize().map_err(|err| err.to_string())?;

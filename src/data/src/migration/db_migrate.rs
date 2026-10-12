@@ -94,10 +94,12 @@ async fn pg_column_exists(
 ) -> Result<bool, ErrorResponse> {
     Ok(cl
         .query_one(
+            // Resolve the same table as the subsequent unqualified SELECT. current_schema()
+            // can be an empty schema preceding the real source table on search_path.
             r#"SELECT EXISTS (
-                SELECT 1 FROM information_schema.columns
-                WHERE table_schema = current_schema()
-                  AND table_name = $1 AND column_name = $2
+                SELECT 1 FROM pg_attribute
+                WHERE attrelid = to_regclass($1)
+                  AND attname = $2 AND NOT attisdropped
             )"#,
             &[&table, &column],
         )
@@ -110,6 +112,39 @@ fn legacy_mfa_method(is_mfa: bool) -> MfaMethod {
         MfaMethod::Legacy
     } else {
         MfaMethod::None
+    }
+}
+
+const FIDO_MDS_METADATA_VERIFIED: &str =
+    "SELECT current_blob_no, next_update, blob_hash, verified_until FROM fido_mds_metadata";
+const FIDO_MDS_METADATA_LEGACY_SQLITE: &str = "SELECT current_blob_no, next_update, \
+    X'' AS blob_hash, 0 AS verified_until FROM fido_mds_metadata";
+const FIDO_MDS_METADATA_LEGACY_PG: &str = "SELECT current_blob_no, next_update, \
+    ''::bytea AS blob_hash, 0::bigint AS verified_until FROM fido_mds_metadata";
+
+fn fido_mds_metadata_query_sqlite(
+    conn: &rusqlite::Connection,
+) -> Result<&'static str, ErrorResponse> {
+    if sqlite_column_exists(conn, "fido_mds_metadata", "blob_hash")?
+        && sqlite_column_exists(conn, "fido_mds_metadata", "verified_until")?
+    {
+        Ok(FIDO_MDS_METADATA_VERIFIED)
+    } else {
+        // Both fields must be available before treating any source verification state as valid.
+        Ok(FIDO_MDS_METADATA_LEGACY_SQLITE)
+    }
+}
+
+async fn fido_mds_metadata_query_pg(
+    cl: &tokio_postgres::Client,
+) -> Result<&'static str, ErrorResponse> {
+    if pg_column_exists(cl, "fido_mds_metadata", "blob_hash").await?
+        && pg_column_exists(cl, "fido_mds_metadata", "verified_until").await?
+    {
+        Ok(FIDO_MDS_METADATA_VERIFIED)
+    } else {
+        // Typed aliases avoid FromPgRow attempting to read nonexistent legacy columns.
+        Ok(FIDO_MDS_METADATA_LEGACY_PG)
     }
 }
 
@@ -676,7 +711,8 @@ pub async fn migrate_from_sqlite(db_from: &str) -> Result<(), ErrorResponse> {
 
     // FIDO MDS METADATA
     debug!("Migrating table: fido_mds_metadata");
-    let before = query_sqlite::<MdsMetadata>(&conn, "SELECT * FROM fido_mds_metadata").await?;
+    let query = fido_mds_metadata_query_sqlite(&conn)?;
+    let before = query_sqlite::<MdsMetadata>(&conn, query).await?;
     inserts::fido_mds_metadata(before).await?;
 
     // FIDO MDS CERTS
@@ -1060,7 +1096,8 @@ pub async fn migrate_from_postgres() -> Result<(), ErrorResponse> {
 
     // FIDO MDS METADATA
     debug!("Migrating table: fido_mds_metadata");
-    let before = DB::pg_query_map_with(&cl, "SELECT * FROM fido_mds_metadata", &[], 0).await?;
+    let query = fido_mds_metadata_query_pg(&cl).await?;
+    let before = DB::pg_query_map_with(&cl, query, &[], 0).await?;
     inserts::fido_mds_metadata(before).await?;
 
     // FIDO MDS CERTS
@@ -1114,3 +1151,7 @@ fn check_feature_version_migrate(version: semver::Version) {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "mds_migration_tests.rs"]
+mod mds_tests;
