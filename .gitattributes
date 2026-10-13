@@ -1,0 +1,2 @@
+# Unified-diff context markers are data, including blank context lines.
+assets/build_tools/*.patch whitespace=-blank-at-eol,-blank-at-eof

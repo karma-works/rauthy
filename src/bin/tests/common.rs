@@ -58,7 +58,10 @@ pub async fn get_auth_headers() -> Result<HeaderMap, Box<dyn Error>> {
 }
 
 pub fn get_backend_url() -> String {
-    "http://localhost:8081/auth/v1".to_string()
+    std::env::var("RAUTHY_TEST_BACKEND_URL")
+        .unwrap_or_else(|_| "http://localhost:8081/auth/v1".to_string())
+        .trim_end_matches('/')
+        .to_string()
 }
 
 #[allow(dead_code)]
@@ -365,7 +368,7 @@ pub fn code_state_from_headers(res: Response) -> Result<(String, Option<String>)
 }
 
 pub fn init_client_bcl_uri() -> String {
-    "http://localhost:8081/auth/v1/dev/backchannel_logout".to_string()
+    format!("{}/dev/backchannel_logout", get_backend_url())
 }
 
 pub async fn get_solved_pow() -> String {

@@ -1,9 +1,7 @@
 # Rauthy — Code Map for Agents & Contributors
 
-> This file is an **index, not documentation**: it tells you *where things are* so you can read the
-> code directly. Maintenance rule: if you do any major changes to the code layout, check if mentions
-> in this file need an update before git commit. Markdown files should always wrap lines at 100
-> characters.
+> This is an index of code locations. Update it before committing major code-layout changes.
+> Wrap Markdown at 100 characters; keep this index within 80 lines.
 
 ## AI-assisted contributions and PRs
 
@@ -21,43 +19,26 @@ no custom queries were modified).
 - `book/` — mdBook source for user-facing docs (`docs/` = built site). Not contributor
   documentation. Building the book currently requires `mdbook-0.4`
 - `rauthy-client/` — Rust client library + examples
+- `vendor/` — Compatibility-preserving security patches; provenance in `vendor/README.md`
+- `assets/build_tools/` — Checksum-pinned tool bootstrap and reviewed dependency locks
 - `CONTRIBUTING.md` provides important information for getting started
 
-## `just` recipes ([justfile](./justfile))
+## Commands and crates
 
-[just](https://github.com/casey/just) is used to run any actions you may need to work on this
-repository. If you are using manual commands and something is not working as expected, take a look
-at the recipes. Use `just -l` to get a summary of all the recipes.
+Use `just -l` and [justfile](./justfile) for recipes. Run `just pre-pr-checks` before pushing.
+Integration tests in `src/bin/tests/` need seeded bootstrap data on :8081. Recipes set
+`PUB_URL=localhost:8081 RP_ORIGIN=http://localhost:8081`; use `just test-backend`,
+`just test-hiqlite`, or `just test-postgres`. Unit tests need no running backend.
 
-## Integration Tests
+Crates under `src/`:
 
-Integration tests in `src/bin/tests/` expect a backend on :8081 with the seeded
-bootstrap data (init_client / init_admin@localhost); the test recipes set
-`PUB_URL=localhost:8081 RP_ORIGIN=http://localhost:8081`. Usually started with any of
-
-- `just test-backend` (starts hiqlite backend without running tests)
-- `just test-hiqlite`
-- `just test-postgres`
-
-Unit tests can be run without any issues.
-
-## Crate map (src/)
-
-| crate          | responsibility                                                                             |
-|----------------|--------------------------------------------------------------------------------------------|
-| `bin`          | Main binary: CLI args, server bootstrap, TLS, middleware wiring (`main.rs`, `server.rs`)   |
-| `api`          | HTTP handlers only (actix), one module per area — no business logic                        |
-| `service`      | Business logic; the OIDC flow lives in the `oidc/` subdirectory (simple endpoints skip it) |
-| `data`         | Entities + DB methods (`entity/`), migrations, config (`rauthy_config.rs`), email          |
-| `api_types`    | Request/response types shared with the frontend                                            |
-| `error`        | `ErrorResponse` — the error type for all `Result`s in this repo                            |
-| `jwt`          | JWT/JWK handling (access tokens, signing keys)                                             |
-| `middlewares`  | actix middleware: `ip_blacklist`, `csrf_protection`, `principal`, `logging`                |
-| `common`       | Shared utilities (base64, `get_rand`, IP extraction, …)                                    |
-| `macros`       | Proc macros                                                                                |
-| `notify`       | Slack / Matrix notification sending                                                        |
-| `schedulers`   | Background jobs (expiry cleanup, etc.)                                                     |
-| `wasm-modules` | WASM helpers for the frontend                                                              |
+- `bin`: CLI, bootstrap, TLS, middleware (`main.rs`, `server.rs`)
+- `api`: actix handlers; `service`: business logic and OIDC flow
+- `data`: entities, DB methods, migrations, config, email
+- `api_types`: shared request/response types; `error`: `ErrorResponse`
+- `jwt`: JWT/JWK; `middlewares`: blacklist, CSRF, principal, logging
+- `common`: utilities; `macros`: proc macros; `notify`: Slack/Matrix
+- `schedulers`: background jobs; `wasm-modules`: frontend WASM
 
 ## Area mapping: api → service → data
 
@@ -67,8 +48,8 @@ in `src/data/src/entity/<entity>.rs`. Areas include: `oidc`, `pam`, `users`, `cl
 `roles`, `scopes`, `sessions`, `api_keys`, `auth_providers`, `backup`, `blacklist`, `email`,
 `events`, `fed_cm`, `kv`, `tos`, `themes`, `atproto`.
 
-Entity files contain both the struct and its DB / Cache methods (`find_*`, `create`, `update`,
-`save`, `delete`, ...).
+Entity files contain the struct and DB/cache methods
+(`find_*`, `create`, `update`, `save`, `delete`).
 
 ### Notable deviations from the pattern
 
@@ -76,33 +57,24 @@ Entity files contain both the struct and its DB / Cache methods (`find_*`, `crea
   (`validate_auth_req_param`) — not under `api/`.
 - Grant-type logic for `/oidc/token` lives in `service/src/oidc/grant_types/<grant>.rs`, dispatched
   by `get_token_set` (`service/src/oidc/mod.rs`).
-- Brute-force defense on login is split across three places (see below).
 - Client-level checks (enabled, force_mfa, redirect_uri, PKCE) are entity methods on
   `data/src/entity/clients.rs`, called from the service layer.
 
-## Where cross-cutting concerns live
+## Cross-cutting concerns
 
-| concern                                       | location                                                                                                                                                                                                                                                      |
-|-----------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Brute-force defense on login                  | PoW: validated in handlers (spow crate; config `pow.difficulty`); per-IP delay + timing equalization: `service/src/login_delay.rs`; cred-stuff detection: `data/src/entity/cred_stuff_detect.rs`; IP-blacklist enforcement: `middlewares/src/ip_blacklist.rs` |
-| Error normalization on POST `/oidc/authorize` | `api/src/oidc.rs::post_authorize_handle`                                                                                                                                                                                                                      |
-| Session model rules                           | `data/src/entity/sessions.rs` (`is_valid`, `set_authenticated`)                                                                                                                                                                                               |
-| MFA cookie (password-skip)                    | `data/src/entity/mfa_cookie.rs`; checked in `service/src/oidc/authorize.rs::post_authorize`                                                                                                                                                                   |
-| Password validation                           | `data/src/entity/users.rs::validate_password`                                                                                                                                                                                                                 |
-| Auth-code issuance + re-validation            | `service/src/oidc/authorize.rs::finish_authorize`                                                                                                                                                                                                             |
-| Config & defaults                             | `data/src/rauthy_config.rs` (search for the `Vars*` structs)                                                                                                                                                                                                  |
-
-## How to trace a request
-
-1. Handler in `src/api/src/<area>.rs` — thin: auth check, payload validation, call into service.
-2. Business logic in `src/service/src/...` (only for more complex requests).
-3. DB/cache work is entity methods in `data/src/entity/*.rs`.
-4. Middleware runs before handlers.
+- Login defense: handler PoW (`pow.difficulty`), `service/src/login_delay.rs`,
+  `data/src/entity/cred_stuff_detect.rs`, `middlewares/src/ip_blacklist.rs`.
+- Error normalization: `api/src/oidc.rs::post_authorize_handle`.
+- Sessions: `data/src/entity/sessions.rs::{is_valid,set_authenticated}`.
+- MFA cookie: `data/src/entity/mfa_cookie.rs`, checked by
+  `service/src/oidc/authorize.rs::post_authorize`.
+- Password checks: `data/src/entity/users.rs::validate_password`.
+- Auth codes: `service/src/oidc/authorize.rs::finish_authorize`.
+- Config/defaults: `data/src/rauthy_config.rs` (`Vars*` structs).
 
 ## Documentation conventions
 
 - Point at **functions**, not line numbers — line numbers rot, function names are stable.
 - Document *where* things are and what invariants must hold; don't re-explain code step by step.
 - Keep this file an index (hard 80 lines, as all markdown files)
-- Module-level `//!` docs are being added incrementally on security/flow-critical modules; where
-  present they are the authoritative local reference for that file.
+- Module-level `//!` docs are the authoritative local reference where present.

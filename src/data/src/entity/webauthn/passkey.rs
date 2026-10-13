@@ -416,8 +416,11 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"#;
             if let Some(aaguid) = &pk.aaguid {
                 // Doing these as single lookups instead of DB joins is fast. All the MDS entries
                 // are cached.
-                let mds = MdsEntrySimple::find(aaguid).await?;
-                resp.description = Some(mds.description);
+                // Device descriptions are optional. Expired metadata must not prevent users
+                // from viewing or managing their passkeys; policy checks still fail closed.
+                if let Ok(mds) = MdsEntrySimple::find(aaguid).await {
+                    resp.description = Some(mds.description);
+                }
             }
 
             res.push(resp);

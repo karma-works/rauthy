@@ -1,4 +1,4 @@
-FROM --platform=$TARGETPLATFORM gcr.io/distroless/cc-debian12:nonroot
+FROM gcr.io/distroless/cc-debian12:nonroot@sha256:9dac0a79194e45a7da0158a9c6da57b217585af0786db3845d1f0ec1a0dd182f
 
 # docker buildx args automatically available
 ARG BUILDPLATFORM
@@ -13,6 +13,7 @@ ARG VERSION
 
 LABEL org.opencontainers.image.authors="Sebastian Dobe <sebastiandobe@mailbox.org>"
 LABEL org.opencontainers.image.base.name="gcr.io/distroless/cc-debian12:nonroot"
+LABEL org.opencontainers.image.base.digest="sha256:9dac0a79194e45a7da0158a9c6da57b217585af0786db3845d1f0ec1a0dd182f"
 LABEL org.opencontainers.image.created="$CREATED"
 LABEL org.opencontainers.image.description="Single Sign-On Identity & Access Management via OpenID Connect, OAuth 2, and PAM"
 LABEL org.opencontainers.image.documentation="https://sebadob.github.io/rauthy/"

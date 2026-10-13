@@ -1,5 +1,6 @@
 .devcontainer
 .github
+.git
 .helix
 .idea
 .lapce
@@ -12,3 +13,4 @@ postgres
 rauthy-client
 target
 README.md
+**/__pycache__
