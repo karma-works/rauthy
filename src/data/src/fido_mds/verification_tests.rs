@@ -311,33 +311,6 @@ fn prepared_asset_rejects_unsigned_or_malformed_evidence() {
     assert!(crate::fido_mds::dataset::MdsDataset::deserialize(&trailing).is_err());
 }
 
-/// Explicit opt-in: public official BLOB/CRLs are fetched; ordinary unit tests stay offline.
-#[tokio::test]
-#[ignore = "requires live public FIDO/GlobalSign network access"]
-async fn authenticates_current_official_blob() {
-    let client = http_client().unwrap();
-    // A cached official BLOB lets us exercise the actual verifier during publisher throttling.
-    // Its signature and freshness are checked normally, and issuer CRLs are fetched live.
-    let bytes = if let Ok(path) = std::env::var("RAUTHY_MDS_TEST_BLOB") {
-        std::fs::read(path).unwrap()
-    } else {
-        fetch_bounded(&client, MDS_SOURCE, MAX_BLOB_BYTES)
-            .await
-            .unwrap()
-    };
-    let jwt = std::str::from_utf8(&bytes).unwrap();
-    let dataset = crate::fido_mds::dataset::MdsDataset::from_jwt(jwt.trim())
-        .await
-        .unwrap();
-    assert!(dataset.blob_no() > 0);
-    assert!(!dataset.entries().is_empty());
-    assert!(!dataset.certs().is_empty());
-    let asset = dataset.serialize().unwrap();
-    let restored = crate::fido_mds::dataset::MdsDataset::deserialize(&asset).unwrap();
-    assert_eq!(restored.blob_no(), dataset.blob_no());
-    assert_eq!(restored.certs(), dataset.certs());
-}
-
 #[test]
 fn accepts_noncritical_header_extensions() {
     let f = fixture();

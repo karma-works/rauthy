@@ -50,10 +50,9 @@ impl MdsMetadata {
 
     pub(super) fn cache_tag(&self) -> String {
         format!(
-            "{}_{}_{}",
+            "{}_{}",
             self.current_blob_no,
-            rauthy_common::utils::base64_url_no_pad_encode(&self.blob_hash),
-            self.verified_until
+            rauthy_common::utils::base64_url_no_pad_encode(&self.blob_hash)
         )
     }
 

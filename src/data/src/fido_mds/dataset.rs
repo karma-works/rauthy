@@ -18,7 +18,6 @@ use hiqlite::{Params, params};
 use rauthy_common::is_hiqlite;
 use rauthy_common::utils::serialize;
 use rauthy_error::ErrorResponse;
-use serde::{Deserialize, Serialize};
 
 use tracing::{info, warn};
 
@@ -81,7 +80,7 @@ pub struct MdsDataset {
 }
 
 /// A distinct root certificate, keyed by the SHA-256 of its DER encoding.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct MdsCert {
     pub hash: [u8; 32],
     pub cert_der: Vec<u8>,
@@ -362,10 +361,11 @@ impl MdsDataset {
             txn.commit().await?;
         }
 
-        if let Some(previous) = previous {
+        if let Some(previous) = previous
+            && (previous.current_blob_no != self.blob_no || previous.blob_hash != self.blob_hash)
+        {
             super::authenticator::MdsAuthenticator::clear_snapshot_cache(&previous).await?;
         }
-        super::authenticator::MdsAuthenticator::clear_cache().await?;
         Ok(())
     }
 }

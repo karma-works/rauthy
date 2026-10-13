@@ -54,8 +54,8 @@ The scheduler refreshes at least daily, or hourly when evidence needs renewal. E
 exponentially from ten minutes to six hours. HTTP 429, Retry-After, and small HTTP 200 throttle
 messages are honored. MDS redirects allow the same HTTPS origin or the reviewed
 `mds.fidoalliance.org` / `mds3.fidoalliance.org` hosts; credentials, downgrades, and other origins
-are rejected. Cache keys include snapshot version, hash, and evidence deadline, and replacement
-clears the previous CA list.
+are rejected. Cache keys include snapshot version and payload hash. Payload replacement clears
+the previous CA list; renewing signing evidence leaves unchanged device-policy caches usable.
 
 Database-backend migration preserves the authenticated payload hash and verification deadline.
 Sources without both verification columns receive empty/zero evidence and need an authentic

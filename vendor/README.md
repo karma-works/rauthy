@@ -17,7 +17,7 @@ Adaptations retain the 0.3 decoder's padding handling, config field, and buffer-
 The upstream budget unit tests are retained. `tests/data_frame_budget.rs` reproduces the upstream
 empty, padded-empty, and small-frame regression cases using a raw in-memory peer, without pulling in
 the upstream test harness. It also checks that an empty END_STREAM still completes a body. The
-published examples and their unused TLS dev dependencies are not included as build targets.
+published examples, nested CI workflows, and unused example TLS dev dependencies are omitted.
 
 Run `cargo +1.95.0 test --manifest-path vendor/h2/Cargo.toml --lib proto::streams` and
 `cargo +1.95.0 test --manifest-path vendor/h2/Cargo.toml --test data_frame_budget`.

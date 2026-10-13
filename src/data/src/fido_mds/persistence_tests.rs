@@ -342,7 +342,7 @@ fn embedded_seed_replaces_legacy_or_older_but_preserves_newer_withdrawals() {
 }
 
 #[test]
-fn stale_snapshots_still_prevent_rollback_and_cache_keys_track_evidence() {
+fn stale_snapshots_prevent_rollback_and_cache_keys_track_payload_changes() {
     let mut connection = sqlite();
     sqlite_replace(&mut connection, 2, &[2; 32], &[], NOW - 86400).unwrap();
     assert!(sqlite_replace(&mut connection, 1, &[1; 32], &[(A, b"resurrected")], NOW).is_err());
@@ -356,19 +356,42 @@ fn stale_snapshots_still_prevent_rollback_and_cache_keys_track_evidence() {
     assert!(!metadata.is_current(NOW));
     let old = metadata.cache_tag();
     metadata.verified_until = NOW + 3600;
+    metadata.next_update = NOW + 3600;
+    assert!(metadata.is_current(NOW));
+    assert_eq!(old, metadata.cache_tag()); // evidence renewal does not change device policy
+    metadata.blob_hash = vec![3; 32];
     assert_ne!(old, metadata.cache_tag());
+    let changed_payload = metadata.cache_tag();
+    metadata.current_blob_no += 1;
+    assert_ne!(changed_payload, metadata.cache_tag());
     metadata.blob_hash.clear();
     assert!(!metadata.has_verified_snapshot());
 }
 
 #[tokio::test]
-#[ignore = "requires RAUTHY_MDS_TEST_BLOB and live public GlobalSign CRLs"]
-async fn official_prepared_asset_seeds_after_bundled_evidence_expires() {
-    let bytes = std::fs::read(std::env::var("RAUTHY_MDS_TEST_BLOB").unwrap()).unwrap();
+#[ignore = "requires live public FIDO/GlobalSign network access"]
+async fn official_blob_and_prepared_asset_verify_current_and_historical_evidence() {
+    // Reuse a captured official BLOB during publisher throttling; signatures and fresh CRLs
+    // are still checked normally. Without a capture, fetch the bounded official response.
+    let bytes = if let Ok(path) = std::env::var("RAUTHY_MDS_TEST_BLOB") {
+        std::fs::read(path).unwrap()
+    } else {
+        let client = verified::http_client().unwrap();
+        verified::fetch_bounded(&client, verified::MDS_SOURCE, verified::MAX_BLOB_BYTES)
+            .await
+            .unwrap()
+    };
     let current = MdsDataset::from_jwt(std::str::from_utf8(&bytes).unwrap().trim())
         .await
         .unwrap();
+    assert!(current.blob_no() > 0);
+    assert!(!current.entries().is_empty());
+    assert!(!current.certs().is_empty());
     let asset = current.serialize().unwrap();
+    let restored = MdsDataset::deserialize(&asset).unwrap();
+    assert_eq!(restored.blob_no(), current.blob_no());
+    assert_eq!(restored.entries(), current.entries());
+    assert_eq!(restored.certs(), current.certs());
     // At two weeks after evidence expiry the public import fails, but the release-only seed
     // rechecks signatures/revocation at its issuer-signed historical time and remains usable.
     assert!(

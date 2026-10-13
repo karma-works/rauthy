@@ -446,21 +446,9 @@ If you don't have a registry available, you can also disable auto-push with for 
 both targets. Docker reuses its cached layers. Publishing a replacement builder image through
 `just build-builder` is a separate maintainer action.
 
-Container inputs and the checkout action are pinned to reviewed digests or commit IDs. When updating
-a container, verify its registry manifest with `docker buildx imagetools inspect IMAGE:TAG` and use
-the index digest so both amd64 and arm64 remain available. Update matching references in `justfile`,
-the Dockerfiles, and the CI workflow together. The inherited CI builder has a single image
-manifest. The builder
-Dockerfile copies Node.js from a pinned Debian bookworm image without a NodeSource bootstrap script.
-Its APT sources use signed Debian and security snapshots from 2026-10-10. Signature checks remain
-enabled; snapshot expiry checks are disabled because these deliberately fixed indexes age. Review
-and update the dated snapshots together with the container digests for security updates.
-CI selects Node.js 26.11.1 with the pinned official setup-node action and upgrades the existing
-builder's OS packages from these same signed snapshots. Both builders then compile checksum-pinned
-OpenSSL 3.5.9 with Clang and replace the actual shared TLS libraries before installing reviewed
-build tools. Python's loaded version and certificate validation are checked during installation.
-Node 26.11.1 includes fixed OpenSSL 3.5.9 as well; replacing system libraries alone cannot fix
-Node's embedded copy. See `assets/build_tools/README.md` for bootstrap provenance and maintenance.
+Container digests, tool sources, and dependency locks are pinned. See
+[build tool maintenance](assets/build_tools/README.md) for provenance, security checks, and
+update instructions. Update matching pins in the Dockerfiles, `justfile`, and CI together.
 
 ## Updating the Book
 

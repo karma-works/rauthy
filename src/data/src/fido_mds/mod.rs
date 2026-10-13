@@ -9,7 +9,7 @@ pub mod verified;
 #[cfg(test)]
 mod tests {
     use crate::fido_mds::masks::{AttachmentHint, AttestationType, KeyProtection, MdsCertLevel};
-    use crate::fido_mds::raw::{self, ParsedDataset};
+    use crate::fido_mds::raw;
 
     /// A fixture that exercises every branch of the transform. Certificate values are arbitrary but
     /// valid base64; `CERTA` (`Q0VSVEE=`) is deliberately shared between two kept entries.
@@ -198,14 +198,10 @@ mod tests {
     }
 
     #[test]
-    fn transform_is_deterministic_and_round_trips() {
+    fn transform_is_deterministic() {
         let a = raw::transform(fixture().as_bytes()).unwrap();
         let b = raw::transform(fixture().as_bytes()).unwrap();
         assert_eq!(a, b);
-
-        let bytes = rauthy_common::utils::serialize(&a).unwrap();
-        let back: ParsedDataset = rauthy_common::utils::deserialize(&bytes).unwrap();
-        assert_eq!(a, back);
     }
 
     #[test]

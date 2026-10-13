@@ -22,16 +22,6 @@ pub struct MdsAuthenticator {
 }
 
 impl MdsAuthenticator {
-    pub async fn clear_cache() -> Result<(), ErrorResponse> {
-        if let Ok(metadata) = super::metadata::MdsMetadata::find().await {
-            Self::clear_snapshot_cache(&metadata).await?;
-        }
-        DB::hql()
-            .delete(Cache::App, IDX_WEBAUTHN_MDS_CA_LIST)
-            .await?;
-        Ok(())
-    }
-
     pub(super) async fn clear_snapshot_cache(
         metadata: &super::metadata::MdsMetadata,
     ) -> Result<(), ErrorResponse> {
@@ -39,13 +29,6 @@ impl MdsAuthenticator {
             .delete(
                 Cache::App,
                 format!("{IDX_WEBAUTHN_MDS_CA_LIST}_{}", metadata.cache_tag()),
-            )
-            .await?;
-        // Remove the key used by earlier versions as well.
-        DB::hql()
-            .delete(
-                Cache::App,
-                format!("{IDX_WEBAUTHN_MDS_CA_LIST}_{}", metadata.current_blob_no),
             )
             .await?;
         Ok(())

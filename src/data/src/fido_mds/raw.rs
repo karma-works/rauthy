@@ -1,4 +1,4 @@
-//! Deserialization of the raw MDS JWT payload and its transform into an [`MdsDataset`].
+//! Deserialization and transformation of the authenticated MDS JWT payload.
 //!
 //! This private module only transforms an already authenticated payload. Production callers must
 //! first verify the BLOB, signing chain and revocation information in [`super::verified`].
@@ -74,7 +74,7 @@ fn next_update_ts(date: &str) -> Result<i64, ErrorResponse> {
         })
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, Deserialize)]
+#[derive(Debug, PartialEq)]
 pub(super) struct ParsedDataset {
     pub blob_no: i64,
     pub next_update_ts: i64,
@@ -90,8 +90,7 @@ pub(super) fn transform(payload: &[u8]) -> Result<ParsedDataset, ErrorResponse> 
         )
     })?;
 
-    // deduplicate certs across all entries, keyed by their DER hash; BTreeMap keeps the output
-    // deterministic so a regeneration from the same blob produces a byte-identical asset
+    // Deduplicate root certificates by DER hash and keep the transformed output deterministic.
     let mut cert_map: BTreeMap<[u8; 32], Vec<u8>> = BTreeMap::new();
     let mut entries = Vec::with_capacity(blob.entries.len());
 
