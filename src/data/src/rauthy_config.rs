@@ -4698,7 +4698,13 @@ pub struct VarsAtproto {
 
 pub fn check_table_empty(table: toml::Table, tbl_name: &str) {
     if !table.is_empty() {
-        panic!("Unknown data in section: '{tbl_name}': {table:#?}");
+        // Only print the keys - the values may contain secrets.
+        let keys = table
+            .keys()
+            .map(String::as_str)
+            .collect::<Vec<_>>()
+            .join(", ");
+        panic!("Unknown data in section '{tbl_name}': {keys}");
     }
 }
 

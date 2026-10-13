@@ -372,7 +372,9 @@ pub async fn get_search(
         principal.validate_group_admin_session()?;
     }
 
-    let limit = params.limit.unwrap_or(100) as i64;
+    const SEARCH_LIMIT_MAX: i64 = 1000;
+    let requested_limit = params.limit.unwrap_or(100) as i64;
+    let limit = std::cmp::min(std::cmp::max(requested_limit, 1), SEARCH_LIMIT_MAX);
     match params.ty {
         SearchParamsType::Session => {
             let res = Session::search(&params.idx, &params.q, limit)

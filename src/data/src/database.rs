@@ -25,6 +25,10 @@ pub type PgClient = deadpool_postgres::Object;
 static HIQLITE_CLIENT: OnceLock<hiqlite::Client> = OnceLock::new();
 static PG_POOL: OnceLock<deadpool_postgres::Pool> = OnceLock::new();
 
+/// Upper bound for the memory reserved up front from a caller-provided `expected_rows_size_hint`.
+/// The hint may be derived from request params, so it must never control the allocation directly.
+const MAX_ROWS_SIZE_HINT: usize = 1024;
+
 mod migrations_postgres {
     refinery::embed_migrations!("../../migrations/postgres");
 }
@@ -391,7 +395,7 @@ impl DB {
         let s = client.query_raw(&st, Self::params_iter(params)).await?;
         pin!(s);
 
-        let mut res: Vec<T> = Vec::with_capacity(expected_rows_size_hint);
+        let mut res: Vec<T> = Vec::with_capacity(expected_rows_size_hint.min(MAX_ROWS_SIZE_HINT));
         while let Some(row) = s.next().await {
             res.push(T::from(row?));
         }
@@ -423,7 +427,8 @@ impl DB {
         let s = client.query_raw(&st, Self::params_iter(params)).await?;
         pin!(s);
 
-        let mut res: Vec<tokio_postgres::Row> = Vec::with_capacity(expected_rows_size_hint);
+        let mut res: Vec<tokio_postgres::Row> =
+            Vec::with_capacity(expected_rows_size_hint.min(MAX_ROWS_SIZE_HINT));
         while let Some(row) = s.next().await {
             res.push(row?);
         }
