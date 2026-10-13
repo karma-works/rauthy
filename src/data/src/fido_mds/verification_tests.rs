@@ -26,6 +26,16 @@ fn certificate(
     dns: &str,
     signature_usage: bool,
 ) -> X509 {
+    certificate_at(key, issuer, dns, signature_usage, NOW)
+}
+
+fn certificate_at(
+    key: &PKey<Private>,
+    issuer: Option<(&X509, &PKey<Private>)>,
+    dns: &str,
+    signature_usage: bool,
+    now: i64,
+) -> X509 {
     let mut builder = X509::builder().unwrap();
     builder.set_version(2).unwrap();
     builder
@@ -37,10 +47,10 @@ fn certificate(
         )
         .unwrap();
     builder
-        .set_not_before(&Asn1Time::from_unix(NOW - 86400).unwrap())
+        .set_not_before(&Asn1Time::from_unix(now - 86400).unwrap())
         .unwrap();
     builder
-        .set_not_after(&Asn1Time::from_unix(NOW + 86400 * 30).unwrap())
+        .set_not_after(&Asn1Time::from_unix(now + 86400 * 30).unwrap())
         .unwrap();
     builder.set_pubkey(key).unwrap();
     let mut name = X509NameBuilder::new().unwrap();
@@ -188,7 +198,7 @@ fn verifies_signed_blob_and_fresh_nonrevoked_chain() {
     let crls = [crl(&f.root, &f.root_key, false, NOW + 3600)];
     check_crls(&authenticated.chain, &crls, NOW).unwrap();
     assert_eq!(
-        verification_deadline(&authenticated.chain, &crls, NOW + 7200).unwrap(),
+        verification_deadline(&authenticated.chain, &crls).unwrap(),
         NOW + 3600
     );
 }
@@ -326,4 +336,134 @@ async fn authenticates_current_official_blob() {
     let restored = crate::fido_mds::dataset::MdsDataset::deserialize(&asset).unwrap();
     assert_eq!(restored.blob_no(), dataset.blob_no());
     assert_eq!(restored.certs(), dataset.certs());
+}
+
+#[test]
+fn accepts_noncritical_header_extensions() {
+    let f = fixture();
+    let mut h = header(&f.leaf);
+    h["kid"] = json!("rotation-key");
+    h["future_hint"] = json!(true);
+    let signed = jwt(h, b"{}", &f.leaf_key);
+    authenticate_with_root(&signed, NOW, &f.root).unwrap();
+}
+
+#[test]
+fn embedded_evidence_is_verified_at_issuer_signed_time() {
+    let f = fixture();
+    let signed = SignedBlob {
+        jwt: jwt(header(&f.leaf), b"{}", &f.leaf_key),
+        crls: vec![crl(&f.root, &f.root_key, false, NOW + 3600)],
+    };
+    let at = embedded_verification_time(&signed).unwrap();
+    assert_eq!(at, NOW - 60);
+    let authenticated = authenticate_with_root(&signed.jwt, at, &f.root).unwrap();
+    check_crls(&authenticated.chain, &signed.crls, at).unwrap();
+    assert!(check_crls(&authenticated.chain, &signed.crls, NOW + 86400 * 14).is_err());
+    let revoked = [crl(&f.root, &f.root_key, true, NOW + 3600)];
+    assert!(check_crls(&authenticated.chain, &revoked, at).is_err());
+}
+
+#[test]
+fn redirects_preserve_transport_and_origin_boundaries() {
+    let origin = reqwest::Url::parse(MDS_SOURCE).unwrap();
+    for url in [
+        "https://mds.fidoalliance.org/blob",
+        "https://mds3.fidoalliance.org/blob",
+    ] {
+        assert!(redirect_allowed(
+            &origin,
+            &reqwest::Url::parse(url).unwrap()
+        ));
+    }
+    for url in [
+        "http://mds.fidoalliance.org/",
+        "https://127.0.0.1/",
+        "https://attacker.example/",
+        "https://user@mds.fidoalliance.org/",
+        "https://mds3.fidoalliance.org:444/",
+    ] {
+        assert!(!redirect_allowed(
+            &origin,
+            &reqwest::Url::parse(url).unwrap()
+        ));
+    }
+    let crl = reqwest::Url::parse("https://crl.globalsign.com/root.crl").unwrap();
+    assert!(redirect_allowed(&crl, &crl.join("other.crl").unwrap()));
+    assert!(!redirect_allowed(&crl, &origin));
+    let limited = rate_limited(Some("7200"));
+    assert!(
+        matches!(limited.error, ErrorResponseType::TooManyRequests(until)
+        if until >= chrono::Utc::now().timestamp() + 7199)
+    );
+}
+
+/// Exercise the real HTTP reader with a local TLS peer, including redirect and error responses.
+#[tokio::test]
+async fn https_download_follows_redirects_and_honors_limits_and_throttling() {
+    use openssl::ssl::{SslAcceptor, SslMethod};
+    use std::io::{Read, Write};
+    let f = fixture();
+    let now = chrono::Utc::now().timestamp();
+    let root = certificate_at(&f.root_key, None, "Test TLS root", true, now);
+    let leaf = certificate_at(
+        &f.leaf_key,
+        Some((&root, &f.root_key)),
+        "mds.fidoalliance.org",
+        true,
+        now,
+    );
+    let mut acceptor = SslAcceptor::mozilla_intermediate(SslMethod::tls()).unwrap();
+    acceptor.set_private_key(&f.leaf_key).unwrap();
+    acceptor.set_certificate(&leaf).unwrap();
+    let acceptor = acceptor.build();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let server = std::thread::spawn(move || {
+        for response in [
+            "HTTP/1.1 302 Found\r\nLocation: /blob\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\na.b.c",
+            "HTTP/1.1 429 Too Many Requests\r\nRetry-After: 7200\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\na.b.c",
+            "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\nrate limit",
+        ] {
+            let (stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(std::time::Duration::from_secs(10)))
+                .unwrap();
+            let mut stream = acceptor.accept(stream).unwrap();
+            let mut request = [0; 4096];
+            assert!(stream.read(&mut request).unwrap() > 0);
+            let _ = stream.write_all(response.as_bytes());
+        }
+    });
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(std::time::Duration::from_secs(10))
+        .add_root_certificate(reqwest::Certificate::from_der(&root.to_der().unwrap()).unwrap())
+        .resolve("mds.fidoalliance.org", addr)
+        .build()
+        .unwrap();
+    let source = format!("https://mds.fidoalliance.org:{}/", addr.port());
+    assert_eq!(
+        fetch_bounded(&client, &source, 1024).await.unwrap(),
+        b"a.b.c"
+    );
+    assert!(matches!(
+        fetch_bounded(&client, &source, 1024)
+            .await
+            .unwrap_err()
+            .error,
+        ErrorResponseType::TooManyRequests(_)
+    ));
+    assert!(fetch_bounded(&client, &source, 4).await.is_err());
+    assert!(matches!(
+        fetch_bounded(&client, &source, 1024)
+            .await
+            .unwrap_err()
+            .error,
+        ErrorResponseType::TooManyRequests(_)
+    ));
+    server.join().unwrap();
 }

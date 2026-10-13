@@ -157,7 +157,7 @@ fn sqlite_empty_authenticated_snapshot_preserves_rollback_protection() {
 }
 
 #[test]
-fn legacy_and_expired_evidence_cannot_authorize_cached_metadata() {
+fn legacy_is_untrusted_but_expired_verified_snapshot_remains_usable() {
     let mut connection = sqlite();
     connection
         .execute(
@@ -178,10 +178,11 @@ fn legacy_and_expired_evidence_cannot_authorize_cached_metadata() {
     metadata.verified_until = NOW + 3600;
     assert!(metadata.is_current(NOW));
     assert!(!metadata.is_current(NOW + 3600));
-    assert!(validate_version(1, NOW, NOW, None).is_err());
-    assert!(validate_version(1, NOW + 91 * 86400, NOW, None).is_err());
-    assert!(validate_version(1, NOW + 3600, NOW, Some(1)).is_err());
-    assert!(validate_version(2, NOW + 3600, NOW, Some(1)).is_ok());
+    assert!(validate_version(1, NOW, NOW).is_ok());
+    assert!(validate_version(1, NOW + 91 * 86400, NOW).is_err());
+    assert!(metadata.has_verified_snapshot());
+    assert!(validate_version(1, NOW - PUBLICATION_GRACE, NOW).is_err());
+    assert!(validate_version(2, NOW + 3600, NOW).is_ok());
 }
 
 async fn pg_replace(
@@ -301,4 +302,87 @@ async fn postgres_replacement_replay_and_revocation_regressions() {
         .unwrap();
     drop(client);
     driver.await.unwrap().unwrap();
+}
+
+#[test]
+fn embedded_seed_replaces_legacy_or_older_but_preserves_newer_withdrawals() {
+    let dataset = MdsDataset {
+        blob_no: 2,
+        next_update_ts: NOW,
+        entries: vec![],
+        certs: vec![],
+        signed: SignedBlob {
+            jwt: String::new(),
+            crls: vec![],
+        },
+        blob_hash: vec![2; 32],
+        verified_until: NOW - 1,
+        embedded: true,
+    };
+    let mut metadata = MdsMetadata {
+        current_blob_no: 9999,
+        ..Default::default()
+    };
+    assert!(should_seed(&metadata, &dataset));
+    metadata = MdsMetadata {
+        current_blob_no: 1,
+        next_update: NOW - 100,
+        blob_hash: vec![1; 32],
+        verified_until: NOW - 100,
+    };
+    assert!(should_seed(&metadata, &dataset));
+    metadata.current_blob_no = 3;
+    assert!(!should_seed(&metadata, &dataset));
+    metadata.current_blob_no = 2;
+    assert!(!should_seed(&metadata, &dataset)); // changed same-number payload
+    metadata.blob_hash = vec![2; 32];
+    assert!(should_seed(&metadata, &dataset));
+    metadata.verified_until = NOW + 1;
+    assert!(!should_seed(&metadata, &dataset)); // keep fresher evidence
+}
+
+#[test]
+fn stale_snapshots_still_prevent_rollback_and_cache_keys_track_evidence() {
+    let mut connection = sqlite();
+    sqlite_replace(&mut connection, 2, &[2; 32], &[], NOW - 86400).unwrap();
+    assert!(sqlite_replace(&mut connection, 1, &[1; 32], &[(A, b"resurrected")], NOW).is_err());
+    let mut metadata = MdsMetadata {
+        current_blob_no: 2,
+        next_update: NOW,
+        blob_hash: vec![2; 32],
+        verified_until: NOW - 86400,
+    };
+    assert!(metadata.has_verified_snapshot());
+    assert!(!metadata.is_current(NOW));
+    let old = metadata.cache_tag();
+    metadata.verified_until = NOW + 3600;
+    assert_ne!(old, metadata.cache_tag());
+    metadata.blob_hash.clear();
+    assert!(!metadata.has_verified_snapshot());
+}
+
+#[tokio::test]
+#[ignore = "requires RAUTHY_MDS_TEST_BLOB and live public GlobalSign CRLs"]
+async fn official_prepared_asset_seeds_after_bundled_evidence_expires() {
+    let bytes = std::fs::read(std::env::var("RAUTHY_MDS_TEST_BLOB").unwrap()).unwrap();
+    let current = MdsDataset::from_jwt(std::str::from_utf8(&bytes).unwrap().trim())
+        .await
+        .unwrap();
+    let asset = current.serialize().unwrap();
+    // At two weeks after evidence expiry the public import fails, but the release-only seed
+    // rechecks signatures/revocation at its issuer-signed historical time and remains usable.
+    assert!(
+        MdsDataset::from_signed(
+            current.signed.clone(),
+            current.verified_until + 14 * 86400,
+            false
+        )
+        .is_err()
+    );
+    let embedded = MdsDataset::from_embedded(&asset).unwrap();
+    assert!(embedded.embedded);
+    assert_eq!(current.blob_hash, embedded.blob_hash);
+    assert_eq!(current.entries, embedded.entries);
+    assert_eq!(current.certs, embedded.certs);
+    assert_eq!(current.verified_until, embedded.verified_until);
 }

@@ -40,12 +40,21 @@ pub(super) struct SignedBlob {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct Header {
     alg: String,
     #[serde(default)]
     typ: Option<String>,
     x5c: Vec<String>,
+    #[serde(default)]
+    crit: Option<Vec<String>>,
+    #[serde(default)]
+    b64: Option<bool>,
+    #[serde(default)]
+    x5u: Option<serde_json::Value>,
+    #[serde(default)]
+    jku: Option<serde_json::Value>,
+    #[serde(default)]
+    jwk: Option<serde_json::Value>,
 }
 
 pub(super) struct AuthenticatedBlob {
@@ -70,13 +79,21 @@ fn authenticate_with_root(
     if jwt.len() > MAX_BLOB_BYTES {
         return Err(invalid("FIDO MDS BLOB exceeds the size limit"));
     }
-    let parts: Vec<&str> = jwt.split('.').collect();
+    let parts: Vec<&str> = jwt.splitn(4, '.').collect();
     if parts.len() != 3 || parts.iter().any(|p| p.is_empty()) || parts[0].len() > 128 * 1024 {
         return Err(invalid("Malformed FIDO MDS compact JWS"));
     }
     let header: Header = serde_json::from_slice(&base64_url_no_pad_decode(parts[0])?)
         .map_err(|_| invalid("Unsupported or malformed FIDO MDS JWS header"))?;
-    if header.alg != "RS256" || header.typ.as_deref().is_some_and(|t| t != "JWT") {
+    // Ignore noncritical extensions (for example kid), without letting them select keys or URLs.
+    if header.alg != "RS256"
+        || header.typ.as_deref().is_some_and(|t| t != "JWT")
+        || header.crit.is_some()
+        || header.b64 == Some(false)
+        || header.x5u.is_some()
+        || header.jku.is_some()
+        || header.jwk.is_some()
+    {
         return Err(invalid("Unsupported FIDO MDS JWS algorithm or type"));
     }
     if header.x5c.is_empty() || header.x5c.len() > MAX_CERTS {
@@ -261,9 +278,9 @@ pub(super) fn check_crls(chain: &[X509], crls: &[Vec<u8>], now: i64) -> Result<(
 pub(super) fn verification_deadline(
     chain: &[X509],
     crls: &[Vec<u8>],
-    next_update: i64,
 ) -> Result<i64, ErrorResponse> {
-    let mut deadline = next_update;
+    // nextUpdate schedules a metadata refresh; it is not a certificate/CRL expiry.
+    let mut deadline = i64::MAX;
     for cert in chain {
         let der = cert.to_der()?;
         let (_, parsed) = X509Certificate::from_der(&der)
@@ -281,6 +298,43 @@ pub(super) fn verification_deadline(
         );
     }
     Ok(deadline)
+}
+
+/// Only for evidence embedded in a trusted release binary, never for network ingestion.
+/// Recover a time at which all bundled certificates and CRLs could have been valid, then let
+/// the normal chain, signature and CRL checks authenticate those issuer-signed timestamps.
+pub(super) fn embedded_verification_time(signed: &SignedBlob) -> Result<i64, ErrorResponse> {
+    if signed.jwt.len() > MAX_BLOB_BYTES || signed.crls.len() >= MAX_CERTS {
+        return Err(invalid("Oversized embedded FIDO MDS evidence"));
+    }
+    let encoded = signed.jwt.split('.').next().unwrap_or_default();
+    if encoded.len() > 128 * 1024 {
+        return Err(invalid("Oversized embedded FIDO MDS header"));
+    }
+    let header: Header = serde_json::from_slice(&base64_url_no_pad_decode(encoded)?)
+        .map_err(|_| invalid("Malformed embedded FIDO MDS header"))?;
+    if header.x5c.is_empty() || header.x5c.len() > MAX_CERTS || signed.crls.is_empty() {
+        return Err(invalid("Missing embedded FIDO MDS evidence"));
+    }
+    let mut at = 0;
+    for encoded in header.x5c {
+        if encoded.len() > MAX_CERT_BYTES * 2 {
+            return Err(invalid("Oversized embedded signing certificate"));
+        }
+        let der = base64_decode(&encoded)?;
+        let (_, cert) = X509Certificate::from_der(&der)
+            .map_err(|_| invalid("Malformed embedded signing certificate"))?;
+        at = at.max(cert.validity().not_before.timestamp());
+    }
+    for bytes in &signed.crls {
+        if bytes.len() > MAX_CRL_BYTES {
+            return Err(invalid("Oversized embedded signing CRL"));
+        }
+        let (_, crl) = CertificateRevocationList::from_der(bytes)
+            .map_err(|_| invalid("Malformed embedded signing CRL"))?;
+        at = at.max(crl.last_update().timestamp());
+    }
+    Ok(at)
 }
 
 fn verify_crl(bytes: &[u8], cert: &X509, issuer: &X509, now: i64) -> Result<(), ErrorResponse> {
@@ -365,19 +419,56 @@ pub fn http_client() -> Result<reqwest::Client, ErrorResponse> {
         .build()?)
 }
 
-/// Bounded even when Content-Length is missing or false; redirects are deliberately unsupported.
+/// Bounded body and redirect count. Every hop retains HTTPS and a reviewed origin boundary.
 pub async fn fetch_bounded(
     client: &reqwest::Client,
     source: &str,
     max: usize,
 ) -> Result<Vec<u8>, ErrorResponse> {
-    let url = reqwest::Url::parse(source).map_err(|_| invalid("Invalid FIDO MDS source URL"))?;
+    let mut url =
+        reqwest::Url::parse(source).map_err(|_| invalid("Invalid FIDO MDS source URL"))?;
     if url.scheme() != "https" || !url.username().is_empty() || url.password().is_some() {
         return Err(invalid(
             "FIDO MDS download requires HTTPS without URL credentials",
         ));
     }
-    let mut response = client.get(url).send().await?;
+    let origin = url.clone();
+    let mut redirects = 0;
+    let mut response = loop {
+        let response = client.get(url.clone()).send().await?;
+        if !matches!(response.status().as_u16(), 301 | 302 | 303 | 307 | 308) {
+            break response;
+        }
+        if redirects == 5 {
+            return Err(invalid("Too many FIDO MDS redirects"));
+        }
+        let location = response
+            .headers()
+            .get(reqwest::header::LOCATION)
+            .and_then(|value| value.to_str().ok())
+            .ok_or_else(|| invalid("Missing FIDO MDS redirect location"))?;
+        let target = url
+            .join(location)
+            .map_err(|_| invalid("Invalid FIDO MDS redirect"))?;
+        if !redirect_allowed(&origin, &target) {
+            return Err(invalid("Unsafe FIDO MDS redirect origin or scheme"));
+        }
+        url = target;
+        redirects += 1;
+    };
+    if response.status().as_u16() == 429
+        || (response.status().as_u16() == 503
+            && response
+                .headers()
+                .contains_key(reqwest::header::RETRY_AFTER))
+    {
+        return Err(rate_limited(
+            response
+                .headers()
+                .get(reqwest::header::RETRY_AFTER)
+                .and_then(|value| value.to_str().ok()),
+        ));
+    }
     if !response.status().is_success() {
         return Err(invalid(format!(
             "FIDO MDS download failed: {}",
@@ -397,7 +488,59 @@ pub async fn fetch_bounded(
         }
         bytes.extend_from_slice(&chunk);
     }
+    // The publisher also returns a small throttle message with HTTP 200.
+    if bytes.len() <= 4096
+        && std::str::from_utf8(&bytes).is_ok_and(|body| {
+            let body = body.to_ascii_lowercase();
+            [
+                "rate limit",
+                "too many requests",
+                "throttl",
+                "try again later",
+            ]
+            .iter()
+            .any(|message| body.contains(message))
+        })
+    {
+        return Err(rate_limited(None));
+    }
     Ok(bytes)
+}
+
+fn redirect_allowed(origin: &reqwest::Url, target: &reqwest::Url) -> bool {
+    let fido_host = |url: &reqwest::Url| {
+        matches!(
+            url.host_str(),
+            Some("mds.fidoalliance.org" | "mds3.fidoalliance.org")
+        )
+    };
+    target.scheme() == "https"
+        && target.username().is_empty()
+        && target.password().is_none()
+        && target.fragment().is_none()
+        && (target.origin() == origin.origin()
+            || (fido_host(origin)
+                && fido_host(target)
+                && origin.port_or_known_default() == Some(443)
+                && target.port_or_known_default() == Some(443)))
+}
+
+fn rate_limited(retry_after: Option<&str>) -> ErrorResponse {
+    let now = chrono::Utc::now().timestamp();
+    let delay = retry_after
+        .and_then(|value| {
+            value.parse::<i64>().ok().or_else(|| {
+                chrono::DateTime::parse_from_rfc2822(value)
+                    .ok()
+                    .map(|date| date.timestamp().saturating_sub(now))
+            })
+        })
+        .unwrap_or(3600)
+        .clamp(60, 86400);
+    ErrorResponse::new(
+        ErrorResponseType::TooManyRequests(now.saturating_add(delay)),
+        "FIDO MDS service requested retry backoff",
+    )
 }
 
 #[cfg(test)]

@@ -1,12 +1,13 @@
 //! Persistence for the FIDO MDS dataset.
 //!
 //! The prepared dataset is embedded in the binary and seeded on startup when the tables are still
-//! empty, which covers both a fresh instance and an existing one upgrading into this version.
+//! unverified or older. Newer authenticated snapshots are never replaced by older release assets.
 //! Runtime updates revalidate the BLOB and signing-chain CRLs at least daily.
 //!
 //! The asset is produced by `just fido-mds-prep` and is not checked into the repository. When it
 //! is missing in a debug build, `build.rs` substitutes an empty placeholder. Release builds require
-//! an asset. Every startup verifies the embedded signature and fresh certificate/CRL evidence.
+//! an asset. Startup verifies embedded signatures at the bundled issuer-signed evidence time;
+//! only this trusted release asset can seed historical evidence for offline operation.
 
 use crate::database::DB;
 use crate::fido_mds::mds_entry::MdsEntry;
@@ -32,7 +33,7 @@ INSERT INTO fido_mds_metadata (current_blob_no, next_update, blob_hash, verified
 VALUES (
     $1, $2,
     CASE WHEN EXISTS (
-        SELECT 1 FROM fido_mds_metadata WHERE verified_until != 0 AND (
+        SELECT 1 FROM fido_mds_metadata WHERE verified_until > 0 AND length(blob_hash) = 32 AND (
             current_blob_no > $1 OR (current_blob_no = $1 AND blob_hash != $3)
         )
     ) THEN NULL ELSE $3 END,
@@ -75,6 +76,8 @@ pub struct MdsDataset {
     signed: SignedBlob,
     blob_hash: Vec<u8>,
     verified_until: i64,
+    // Only the immutable release asset may use historical issuer-signed evidence.
+    embedded: bool,
 }
 
 /// A distinct root certificate, keyed by the SHA-256 of its DER encoding.
@@ -103,26 +106,38 @@ impl MdsDataset {
         let now = chrono::Utc::now().timestamp();
         let authenticated = verified::authenticate(jwt, now)?;
         let crls = verified::collect_crls(&authenticated.chain).await?;
-        Self::from_signed(
+        Self::from_authenticated(
             SignedBlob {
                 jwt: jwt.to_string(),
                 crls,
             },
+            authenticated,
             chrono::Utc::now().timestamp(),
+            false,
         )
     }
 
-    fn from_signed(signed: SignedBlob, now: i64) -> Result<Self, ErrorResponse> {
+    fn from_signed(signed: SignedBlob, now: i64, embedded: bool) -> Result<Self, ErrorResponse> {
         let authenticated = verified::authenticate(&signed.jwt, now)?;
+        Self::from_authenticated(signed, authenticated, now, embedded)
+    }
+
+    fn from_authenticated(
+        signed: SignedBlob,
+        authenticated: verified::AuthenticatedBlob,
+        now: i64,
+        embedded: bool,
+    ) -> Result<Self, ErrorResponse> {
         verified::check_crls(&authenticated.chain, &signed.crls, now)?;
         let parsed = raw::transform(&authenticated.payload)?;
-        validate_version(parsed.blob_no, parsed.next_update_ts, now, None)?;
+        validate_version(parsed.blob_no, parsed.next_update_ts, now)?;
         let blob_hash = openssl::sha::sha256(&authenticated.payload).to_vec();
-        let verified_until = verified::verification_deadline(
-            &authenticated.chain,
-            &signed.crls,
-            parsed.next_update_ts,
-        )?;
+        let verified_until = verified::verification_deadline(&authenticated.chain, &signed.crls)?;
+        if verified_until <= now {
+            return Err(verified::invalid(
+                "FIDO MDS signing-chain evidence has expired",
+            ));
+        }
         // Fail at ingestion rather than waiting until an attestation ceremony uses invalid roots.
         for cert in &parsed.certs {
             openssl::x509::X509::from_der(&cert.cert_der)?;
@@ -135,6 +150,7 @@ impl MdsDataset {
             signed,
             blob_hash,
             verified_until,
+            embedded,
         })
     }
 
@@ -143,6 +159,20 @@ impl MdsDataset {
     }
 
     pub fn deserialize(bytes: &[u8]) -> Result<Self, ErrorResponse> {
+        Self::from_signed(
+            Self::decode_evidence(bytes)?,
+            chrono::Utc::now().timestamp(),
+            false,
+        )
+    }
+
+    fn from_embedded(bytes: &[u8]) -> Result<Self, ErrorResponse> {
+        let signed = Self::decode_evidence(bytes)?;
+        let at = verified::embedded_verification_time(&signed)?;
+        Self::from_signed(signed, at, true)
+    }
+
+    fn decode_evidence(bytes: &[u8]) -> Result<SignedBlob, ErrorResponse> {
         // The old unsigned prepared format deliberately no longer deserializes successfully.
         if bytes.len() > verified::MAX_BLOB_BYTES + 20 * 1024 * 1024 {
             return Err(verified::invalid(
@@ -159,33 +189,36 @@ impl MdsDataset {
                 "Trailing bytes in prepared FIDO MDS asset",
             ));
         }
-        Self::from_signed(signed, chrono::Utc::now().timestamp())
+        Ok(signed)
     }
 }
 
-/// Reject stale/far-future metadata and prevent replay of previously accepted versions.
-fn validate_version(
-    blob_no: i64,
-    next_update: i64,
-    now: i64,
-    previous: Option<i64>,
-) -> Result<(), ErrorResponse> {
-    if blob_no <= 0 || next_update <= now || next_update > now.saturating_add(90 * 86400) {
+/// Allow a late publication for seven days. Existing verified snapshots remain usable afterward.
+const PUBLICATION_GRACE: i64 = 7 * 86400;
+fn validate_version(blob_no: i64, next_update: i64, now: i64) -> Result<(), ErrorResponse> {
+    if blob_no <= 0
+        || next_update <= now.saturating_sub(PUBLICATION_GRACE)
+        || next_update > now.saturating_add(90 * 86400)
+    {
         return Err(verified::invalid(
-            "FIDO MDS metadata is expired or has an invalid version/update date",
+            "FIDO MDS metadata has an invalid version/update date",
         ));
     }
-    if previous.is_some_and(|previous| blob_no <= previous) {
-        return Err(verified::invalid(
-            "FIDO MDS BLOB replay or rollback rejected",
-        ));
-    }
+    // Rollback and same-number payload changes are checked atomically by SQL_META.
     Ok(())
 }
 
+fn should_seed(metadata: &super::metadata::MdsMetadata, dataset: &MdsDataset) -> bool {
+    !metadata.has_verified_snapshot()
+        || dataset.blob_no > metadata.current_blob_no
+        || (dataset.blob_no == metadata.current_blob_no
+            && dataset.blob_hash == metadata.blob_hash
+            && dataset.verified_until > metadata.verified_until)
+}
+
 impl MdsDataset {
-    /// Seed the embedded dataset when the entries table is empty. A no-op otherwise, so it is safe
-    /// to call on every startup. Only the primary node writes; followers receive it through Raft.
+    /// Seed legacy or older snapshots from the trusted release asset without rolling back verified
+    /// metadata. Only the primary node writes; followers receive it through Raft.
     pub async fn seed_embedded() -> Result<(), ErrorResponse> {
         if !RauthyConfig::get().is_primary_node {
             return Ok(());
@@ -197,25 +230,20 @@ impl MdsDataset {
             );
             return Ok(());
         }
-        // An authenticated empty snapshot is still a snapshot. Replaying an older embedded
-        // asset here must neither resurrect withdrawn models nor prevent the server starting.
-        let authenticated_snapshot = super::metadata::MdsMetadata::find()
-            .await
-            .is_ok_and(|metadata| metadata.verified_until != 0 && metadata.blob_hash.len() == 32);
-        if authenticated_snapshot || Self::entries_count().await? > 0 {
-            return Ok(());
-        }
-
-        let slf = match Self::deserialize(MDS_DATASET) {
+        let slf = match Self::from_embedded(MDS_DATASET) {
             Ok(dataset) => dataset,
             Err(err) => {
-                warn!(
-                    "Embedded FIDO MDS authentication evidence is invalid or expired: {err}. \
-                       Waiting for the verified online update."
-                );
+                warn!("Embedded FIDO MDS authentication evidence is invalid: {err}");
                 return Ok(());
             }
         };
+        // Even an expired or empty authenticated newer snapshot prevents rollback/resurrection.
+        let metadata = super::metadata::MdsMetadata::find()
+            .await
+            .unwrap_or_default();
+        if !should_seed(&metadata, &slf) {
+            return Ok(());
+        }
         slf.upsert().await?;
 
         info!(
@@ -227,29 +255,17 @@ impl MdsDataset {
         Ok(())
     }
 
-    async fn entries_count() -> Result<i64, ErrorResponse> {
-        let sql = "SELECT COUNT(*) AS count FROM fido_mds_entries";
-
-        let count: i64 = if is_hiqlite() {
-            DB::hql()
-                .query_raw(sql, params!())
-                .await?
-                .remove(0)
-                .get("count")
-        } else {
-            DB::pg_query_rows(sql, &[], 1).await?.remove(0).get("count")
-        };
-        Ok(count)
-    }
-
     pub async fn upsert(&self) -> Result<(), ErrorResponse> {
         let now = chrono::Utc::now().timestamp();
-        validate_version(self.blob_no, self.next_update_ts, now, None)?;
-        if self.verified_until <= now {
+        if !self.embedded {
+            validate_version(self.blob_no, self.next_update_ts, now)?;
+        }
+        if !self.embedded && self.verified_until <= now {
             return Err(verified::invalid(
                 "FIDO MDS signing-chain evidence has expired",
             ));
         }
+        let previous = super::metadata::MdsMetadata::find().await.ok();
         // The first statement enforces monotonicity in the DB transaction itself, including a
         // concurrent update on another process. A rollback or changed same-number payload
         // deliberately violates NOT NULL and rolls back before trusted entries are changed.
@@ -346,6 +362,10 @@ impl MdsDataset {
             txn.commit().await?;
         }
 
+        if let Some(previous) = previous {
+            super::authenticator::MdsAuthenticator::clear_snapshot_cache(&previous).await?;
+        }
+        super::authenticator::MdsAuthenticator::clear_cache().await?;
         Ok(())
     }
 }

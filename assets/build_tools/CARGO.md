@@ -7,8 +7,9 @@ toolchain's Cargo binary while preserving the rustup dispatch shim and Rust 1.95
 Source: official crates.io Cargo 0.96.0 archive, SHA-256
 `4653299848aaa3c7c34a06a9c1f9248e1340f8d23aa2bd1681a131a070c1cd06`.
 The source library version corresponds to Cargo CLI 1.95. `cargo-dependencies.patch` adds the local
-package suffix, updates git2/git2-curl/libgit2-sys together, enables git2's explicit credential-helper
-feature, and replaces unmaintained im-rc with maintained imbl collections. Small API adaptations
+package suffix, updates git2/git2-curl/libgit2-sys together, enables git2's explicit
+credential-helper feature, and replaces unmaintained im-rc with maintained imbl collections. Small
+API adaptations
 preserve the resolver's Fx hasher and Rc pointer choice and handle git2's new path/URL Result types.
 The reviewed lock fixes affected runtime RustSec dependencies and pins libgit2 1.9.7 source through
 libgit2-sys 0.18.8. Other Cargo implementation code is unchanged.

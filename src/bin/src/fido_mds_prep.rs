@@ -42,24 +42,46 @@ const DOWNLOAD_ATTEMPTS: u32 = 5;
 
 async fn download(source: &str) -> Result<String, Box<dyn Error>> {
     let client = http_client().map_err(|err| err.to_string())?;
+    download_using(&client, source).await
+}
 
+async fn download_using(client: &reqwest::Client, source: &str) -> Result<String, Box<dyn Error>> {
     let mut last_err = String::new();
+    let mut retry_at = 0i64;
     for attempt in 1..=DOWNLOAD_ATTEMPTS {
         if attempt > 1 {
-            let backoff = Duration::from_secs(2u64.pow(attempt - 1));
+            let backoff = Duration::from_secs(
+                2u64.pow(attempt - 1).max(
+                    retry_at
+                        .saturating_sub(chrono::Utc::now().timestamp())
+                        .max(0) as u64,
+                ),
+            );
             println!("Retrying in {}s: {last_err}", backoff.as_secs());
             tokio::time::sleep(backoff).await;
         }
 
-        match fetch_bounded(&client, source, MAX_BLOB_BYTES).await {
+        match fetch_bounded(client, source, MAX_BLOB_BYTES).await {
             Ok(bytes) => {
-                let body = String::from_utf8(bytes)?;
+                let body = match String::from_utf8(bytes) {
+                    Ok(body) => body,
+                    Err(err) => {
+                        last_err = err.to_string();
+                        continue;
+                    }
+                };
                 if body.trim().split('.').count() == 3 {
                     return Ok(body);
                 }
                 last_err = "the metadata service did not return a compact JWS".into();
             }
-            Err(err) => last_err = err.to_string(),
+            Err(err) => {
+                retry_at = match err.error {
+                    rauthy_error::ErrorResponseType::TooManyRequests(until) => until,
+                    _ => 0,
+                };
+                last_err = err.to_string();
+            }
         }
     }
 
@@ -115,4 +137,75 @@ async fn main() -> Result<(), Box<dyn Error>> {
     println!("Wrote {} bytes to {}", bytes.len(), args.out.display());
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn malformed_utf8_response_is_retried() {
+        use openssl::asn1::Asn1Time;
+        use openssl::bn::BigNum;
+        use openssl::hash::MessageDigest;
+        use openssl::pkey::PKey;
+        use openssl::rsa::Rsa;
+        use openssl::ssl::{SslAcceptor, SslMethod};
+        use openssl::x509::{X509, X509NameBuilder};
+        use std::io::Write;
+
+        let key = PKey::from_rsa(Rsa::generate(2048).unwrap()).unwrap();
+        let mut name = X509NameBuilder::new().unwrap();
+        name.append_entry_by_text("CN", "localhost").unwrap();
+        let name = name.build();
+        let mut cert = X509::builder().unwrap();
+        cert.set_version(2).unwrap();
+        cert.set_serial_number(&BigNum::from_u32(1).unwrap().to_asn1_integer().unwrap())
+            .unwrap();
+        cert.set_subject_name(&name).unwrap();
+        cert.set_issuer_name(&name).unwrap();
+        cert.set_pubkey(&key).unwrap();
+        cert.set_not_before(&Asn1Time::days_from_now(0).unwrap())
+            .unwrap();
+        cert.set_not_after(&Asn1Time::days_from_now(1).unwrap())
+            .unwrap();
+        cert.sign(&key, MessageDigest::sha256()).unwrap();
+        let mut tls = SslAcceptor::mozilla_intermediate(SslMethod::tls()).unwrap();
+        tls.set_private_key(&key).unwrap();
+        tls.set_certificate(&cert.build()).unwrap();
+        let tls = tls.build();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            for body in [vec![0xff], b"a.b.c".to_vec()] {
+                let (stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(10)))
+                    .unwrap();
+                let mut stream = tls.accept(stream).unwrap();
+                let mut request = [0; 4096];
+                assert!(stream.read(&mut request).unwrap() > 0);
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                )
+                .unwrap();
+                stream.write_all(&body).unwrap();
+            }
+        });
+        // Only the local response fixture bypasses TLS trust; production uses http_client().
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .danger_accept_invalid_certs(true)
+            .redirect(reqwest::redirect::Policy::none())
+            .timeout(Duration::from_secs(10))
+            .build()
+            .unwrap();
+        let body = download_using(&client, &format!("https://localhost:{}/", addr.port()))
+            .await
+            .unwrap();
+        assert_eq!(body, "a.b.c");
+        server.join().unwrap();
+    }
 }

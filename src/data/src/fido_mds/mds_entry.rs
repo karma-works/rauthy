@@ -57,10 +57,10 @@ impl MdsEntrySimple {
     }
 
     pub async fn find(aaguid: &[u8]) -> Result<Self, ErrorResponse> {
-        let metadata = super::metadata::MdsMetadata::require_current().await?;
+        let metadata = super::metadata::MdsMetadata::require_verified().await?;
         let uuid = Uuid::from_slice(aaguid).unwrap_or_default();
         // A new BLOB cannot reuse a cached model that was withdrawn or revoked.
-        let cache_idx = format!("{}_{}", Self::cache_idx(&uuid), metadata.current_blob_no);
+        let cache_idx = format!("{}_{}", Self::cache_idx(&uuid), metadata.cache_tag());
         if let Some(slf) = DB::hql().get(Cache::Webauthn, &cache_idx).await? {
             return Ok(slf);
         }

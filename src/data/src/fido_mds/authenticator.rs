@@ -24,11 +24,29 @@ pub struct MdsAuthenticator {
 impl MdsAuthenticator {
     pub async fn clear_cache() -> Result<(), ErrorResponse> {
         if let Ok(metadata) = super::metadata::MdsMetadata::find().await {
-            let cache_idx = format!("{IDX_WEBAUTHN_MDS_CA_LIST}_{}", metadata.current_blob_no);
-            DB::hql().delete(Cache::App, cache_idx).await?;
+            Self::clear_snapshot_cache(&metadata).await?;
         }
         DB::hql()
             .delete(Cache::App, IDX_WEBAUTHN_MDS_CA_LIST)
+            .await?;
+        Ok(())
+    }
+
+    pub(super) async fn clear_snapshot_cache(
+        metadata: &super::metadata::MdsMetadata,
+    ) -> Result<(), ErrorResponse> {
+        DB::hql()
+            .delete(
+                Cache::App,
+                format!("{IDX_WEBAUTHN_MDS_CA_LIST}_{}", metadata.cache_tag()),
+            )
+            .await?;
+        // Remove the key used by earlier versions as well.
+        DB::hql()
+            .delete(
+                Cache::App,
+                format!("{IDX_WEBAUTHN_MDS_CA_LIST}_{}", metadata.current_blob_no),
+            )
             .await?;
         Ok(())
     }
@@ -63,7 +81,7 @@ impl MdsAuthenticator {
     }
 
     pub async fn get_ca_list() -> Result<Option<AttestationCaList>, ErrorResponse> {
-        let metadata = match super::metadata::MdsMetadata::require_current().await {
+        let metadata = match super::metadata::MdsMetadata::require_verified().await {
             Ok(metadata) => metadata,
             Err(err) if !force_mds_attestation() => {
                 debug!("Optional FIDO attestation unavailable: {err}");
@@ -71,7 +89,7 @@ impl MdsAuthenticator {
             }
             Err(err) => return Err(err),
         };
-        let cache_idx = format!("{IDX_WEBAUTHN_MDS_CA_LIST}_{}", metadata.current_blob_no);
+        let cache_idx = format!("{IDX_WEBAUTHN_MDS_CA_LIST}_{}", metadata.cache_tag());
         if let Some(json) = DB::hql()
             .get::<_, _, Option<String>>(Cache::App, &cache_idx)
             .await?
