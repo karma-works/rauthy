@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
 import { after, before, test } from 'node:test';
 import { createServer } from 'vite';
-import config from '../svelte.config.js';
+import { svelteConfig } from '../vite.config.js';
 
 let server;
 let webauthnAuth;
@@ -20,7 +20,7 @@ before(async () => {
         server: { middlewareMode: true, watch: null },
         resolve: {
             alias: Object.fromEntries(
-                Object.entries(config.kit.alias).map(([key, path]) => [key, resolve(path)]),
+                Object.entries(svelteConfig.alias).map(([key, path]) => [key, resolve(path)]),
             ),
         },
     });

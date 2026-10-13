@@ -4,6 +4,11 @@ This document should help you to contribute to Rauthy and setting up your local 
 
 ## Guidelines for writing code
 
+AI-assisted and agent-authored contributions are welcome. The contributor is responsible for
+understanding and validating the submitted changes. AI-assisted changes follow the same coding,
+testing, and maintainer review process as any other contribution; no separate local approval or
+Draft PR requirement applies.
+
 - **Performance and footprint matters**. If you write code, think about performance and especially
   memory footprint. For instance, avoid cloning values around when borrowing works fine too, or
   avoid allocating new memory in general, when you do not need to. The final performance
@@ -124,8 +129,8 @@ from changing build output.
 
 Use `just update` only when intentionally reviewing dependency updates. The npm release-age filter
 requires a supporting npm version; npm v11.19.1 is used for local dependency verification. Keep the
-lockfiles in the same change as their manifests. SvelteKit 2's `cookie` override pins the compatible
-0.7.2 security fix until its upstream dependency is updated.
+lockfiles in the same change as their manifests. SvelteKit 3 uses the fixed `cookie` 2 release;
+keep its TypeScript and Svelte peer requirements aligned without a legacy cookie override.
 The pinned stable Rust 1.95 toolchain does not enforce Cargo's nightly release-age settings.
 Review publication dates and current advisories when intentionally refreshing Cargo locks.
 
