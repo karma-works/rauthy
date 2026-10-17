@@ -46,6 +46,21 @@ same values as the id token of the same token set:
 Both names were reserved already, so a custom attribute emitted at the token root cannot shadow
 them.
 
+#### Passkey-only Account Setup
+
+A new, optional `webauthn.new_user_passkey_only` (`WEBAUTHN_NEW_USER_PASSKEY_ONLY`) restricts the
+account setup from the "new account" E-Mail to the registration of a Passkey. The password option
+is hidden in the UI, and setting a password with such a link is rejected by the backend. The same
+link is sent for accounts without any password and Passkey. Accounts that already have a password
+and an admin setting a password manually are not affected.
+
+```toml
+[webauthn]
+# default: false
+# overwritten by: WEBAUTHN_NEW_USER_PASSKEY_ONLY
+new_user_passkey_only = false
+```
+
 ## v0.37.1
 
 ### Security

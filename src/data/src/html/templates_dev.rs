@@ -157,6 +157,8 @@ impl HtmlTemplate {
                     csrf_token: ml.csrf_token.clone(),
                     magic_link_id: ml.id.clone(),
                     needs_mfa: user.has_webauthn_enabled(),
+                    passkey_only: MagicLinkUsage::try_from(&ml.usage)?
+                        .is_passkey_only(RauthyConfig::get().vars.webauthn.new_user_passkey_only),
                     password_policy: PasswordPolicyResponse::from(password_policy),
                     user_id: user.id,
                 };

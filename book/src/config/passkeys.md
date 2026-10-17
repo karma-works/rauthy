@@ -53,6 +53,19 @@ you'll need to disable the setting "Autofill Passwords and Passkeys".
 ![the setting Autofill Passwords and Passkeys is under a section called AutoFill and Passwords](img/macos_autofill.png)
 ```
 
+### Passkey Only Setup for New Users
+
+By default, a new user can choose between a password and a Passkey during the setup from the
+"new account" E-Mail. With `webauthn.new_user_passkey_only = true`, the setup only offers the
+registration of a Passkey, and setting a password with such a link is rejected by the backend. This
+also applies to accounts that have neither a password nor a Passkey, for instance after an admin
+deleted all of their Passkeys. Accounts that already have a password are not affected.
+
+```toml
+[webauthn]
+new_user_passkey_only = true
+```
+
 ## Config
 
 You should use Passkeys / Webauthn in production for 2FA / MFA. To make sure it works, you need to

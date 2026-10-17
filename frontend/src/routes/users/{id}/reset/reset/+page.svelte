@@ -59,6 +59,13 @@
     });
 
     $effect(() => {
+        // a passkey-only setup has no choice
+        if (tplData?.passkey_only) {
+            accountTypeNew = 'passkey';
+        }
+    });
+
+    $effect(() => {
         refPasskey?.focus();
     });
 
@@ -319,24 +326,26 @@
                             <A href={t.passwordReset.fidoLink} target="_blank">FIDO Alliance</A>
                         </p>
 
-                        <div class="typeChoice">
-                            <Button
-                                level={!accountTypeNew ? 1 : 3}
-                                onclick={() => (accountTypeNew = 'passkey')}
-                                {isLoading}
-                            >
-                                {t.passwordReset.passwordless}
-                            </Button>
-                            <Button
-                                level={!accountTypeNew ? 2 : 3}
-                                onclick={() => (accountTypeNew = 'password')}
-                                {isLoading}
-                            >
-                                {t.passwordReset.password}
-                            </Button>
-                        </div>
+                        {#if !tplData.passkey_only}
+                            <div class="typeChoice">
+                                <Button
+                                    level={!accountTypeNew ? 1 : 3}
+                                    onclick={() => (accountTypeNew = 'passkey')}
+                                    {isLoading}
+                                >
+                                    {t.passwordReset.passwordless}
+                                </Button>
+                                <Button
+                                    level={!accountTypeNew ? 2 : 3}
+                                    onclick={() => (accountTypeNew = 'password')}
+                                    {isLoading}
+                                >
+                                    {t.passwordReset.password}
+                                </Button>
+                            </div>
+                        {/if}
 
-                        {#if accountTypeNew === 'password'}
+                        {#if accountTypeNew === 'password' && !tplData.passkey_only}
                             <div transition:slide>
                                 {@render passwordInput()}
                             </div>

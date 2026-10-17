@@ -65,6 +65,14 @@ impl TryFrom<&str> for MagicLinkUsage {
     }
 }
 
+impl MagicLinkUsage {
+    /// `true` if a link with this usage may only be used to register a passkey, never to set a
+    /// password, see `webauthn.new_user_passkey_only`.
+    pub fn is_passkey_only(&self, new_user_passkey_only: bool) -> bool {
+        new_user_passkey_only && matches!(self, Self::NewUser(_))
+    }
+}
+
 impl Display for MagicLinkUsage {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         // For types with a value, `$` was chosen as the separating characters since it is URL safe.
@@ -378,5 +386,24 @@ mod tests {
         let s = ml.to_string();
         let ml_from = MagicLinkUsage::try_from(&s).unwrap();
         assert_eq!(ml, ml_from);
+    }
+
+    #[test]
+    fn test_magic_link_usage_passkey_only() {
+        // the upstream default never restricts anything
+        for usage in [
+            MagicLinkUsage::NewUser(None),
+            MagicLinkUsage::NewUser(Some("custom.uri.com".to_string())),
+            MagicLinkUsage::PasswordReset(None),
+            MagicLinkUsage::EmailChange("admin@localhost".to_string()),
+        ] {
+            assert!(!usage.is_passkey_only(false), "{usage}");
+        }
+
+        // only the setup of a new account is restricted to a passkey
+        assert!(MagicLinkUsage::NewUser(None).is_passkey_only(true));
+        assert!(MagicLinkUsage::NewUser(Some("custom.uri.com".to_string())).is_passkey_only(true));
+        assert!(!MagicLinkUsage::PasswordReset(None).is_passkey_only(true));
+        assert!(!MagicLinkUsage::EmailChange("admin@localhost".to_string()).is_passkey_only(true));
     }
 }

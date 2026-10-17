@@ -3066,6 +3066,19 @@ rp_origin = 'http://localhost:8080'
 # overwritten by: WEBAUTHN_PASSKEY_REG_TYPE
 #passkey_reg_type = 'default resident_key'
 
+# If set to `true`, the account setup for new users (the link from
+# the "new account" E-Mail, which is also sent for accounts without
+# any password and passkey) only offers the registration of a
+# passkey. The password option is hidden in the UI, and setting a
+# password via such a link is rejected by the backend.
+# Existing passwords and password resets of accounts that already
+# have a password are not affected, and an admin can still set a
+# password manually.
+#
+# default: false
+# overwritten by: WEBAUTHN_NEW_USER_PASSKEY_ONLY
+#new_user_passkey_only = false
+
 # When you want to migrate an existing deployment over to enforced
 # attestation, you usually have a chicken-and-egg problem: You
 # have users that already use Passkeys. Device attestation only
