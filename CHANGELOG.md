@@ -30,6 +30,22 @@ registered Passkeys are not changed.
 passkey_reg_type = 'default resident_key'
 ```
 
+#### `amr` and `auth_time` in the Access Token
+
+Until now, only the id token carried `amr` and `auth_time`. A resource server usually only sees the
+access token though, and could therefore not check whether a user logged in with MFA or how recent
+the login was. Every access token that represents a user now carries both claims with exactly the
+same values as the id token of the same token set:
+
+- `amr` is derived from the factor that has actually been verified: `["mfa"]` after a Passkey or an
+  upstream auth provider MFA, `["otp"]` after an E-Mail OTP, `["pwd"]` otherwise.
+- `auth_time` is the time of the last interactive authentication. A refresh keeps both values of
+  the original login. A token exchange keeps the values of the `subject_token`.
+- `client_credentials` tokens have no user and carry neither claim.
+
+Both names were reserved already, so a custom attribute emitted at the token root cannot shadow
+them.
+
 ## v0.37.1
 
 ### Security
