@@ -180,6 +180,20 @@ VALUES ($1, $2, $3, $4, $5, $6)"#;
         Ok(link)
     }
 
+    /// Deletes all links of a user that can be used to set up credentials (`password_reset` and
+    /// `new_user`), so that only a freshly sent one stays valid.
+    pub async fn delete_all_credential_links_for_user(user_id: &str) -> Result<(), ErrorResponse> {
+        let sql = "DELETE FROM magic_links WHERE user_id = $1 \
+            AND (usage LIKE 'password_reset%' OR usage LIKE 'new_user%')";
+        if is_hiqlite() {
+            DB::hql().execute(sql, params!(user_id)).await?;
+        } else {
+            DB::pg_execute(sql, &[&user_id]).await?;
+        };
+
+        Ok(())
+    }
+
     pub async fn delete_all_pwd_reset_for_user(user_id: String) -> Result<(), ErrorResponse> {
         let sql = "DELETE FROM magic_links WHERE user_id = $1 AND usage LIKE 'password_reset%'";
         if is_hiqlite() {

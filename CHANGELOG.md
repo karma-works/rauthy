@@ -61,6 +61,16 @@ and an admin setting a password manually are not affected.
 new_user_passkey_only = false
 ```
 
+#### Admin API: Resend the Account Setup E-Mail
+
+`POST /auth/v1/users/{id}/setup_mail` sends the account setup E-Mail for an existing user again,
+the same one a newly created user receives. All other open password reset and setup links of the
+user become invalid. The user must not have any Passkey left, so that a setup link can never add a
+Passkey to an account that still has one. Together with deleting the user's Passkeys
+(`DELETE /users/{id}/webauthn/delete/{name}`) and `DELETE /sessions/{user_id}`, this resets the
+sign-in of a user. It needs an admin session or an API Key with `Users: update` and responds with
+`204` without telling whether the E-Mail could be delivered.
+
 ## v0.37.1
 
 ### Security

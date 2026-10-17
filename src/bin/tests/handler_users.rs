@@ -436,3 +436,118 @@ async fn test_api_key_passkey_delete_authorization() -> Result<(), Box<dyn Error
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_setup_mail() -> Result<(), Box<dyn Error>> {
+    let auth_headers = get_auth_headers().await?;
+    let client = reqwest::Client::new();
+
+    let res = client
+        .post(format!("{}/users", get_backend_url()))
+        .headers(auth_headers.clone())
+        .json(&NewUserRequest {
+            given_name: Some("Setup".to_string()),
+            family_name: Some("Mail".to_string()),
+            email: format!("{}@batcave.io", new_store_id()),
+            preferred_username: None,
+            language: Language::En,
+            roles: vec![],
+            groups: None,
+            user_expires: None,
+            tz: None,
+        })
+        .send()
+        .await?;
+    assert_eq!(res.status(), 200);
+    let user = res.json::<UserResponse>().await?;
+    let url = format!("{}/users/{}/setup_mail", get_backend_url(), user.id);
+
+    // no auth at all
+    let res = client
+        .post(&url)
+        .json(&serde_json::json!({}))
+        .send()
+        .await?;
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+
+    // an ApiKey needs `Users: update`
+    let mut key = ApiKeyRequest {
+        name: new_store_id(),
+        exp: None,
+        access: vec![ApiKeyAccess {
+            group: AccessGroup::Users,
+            access_rights: vec![AccessRights::Read, AccessRights::Create],
+        }],
+    };
+    let res = client
+        .post(format!("{}/api_keys", get_backend_url()))
+        .headers(auth_headers.clone())
+        .json(&key)
+        .send()
+        .await?;
+    assert_eq!(res.status(), StatusCode::OK);
+    let key_header = format!("API-Key {}", res.text().await?);
+
+    let res = client
+        .post(&url)
+        .header(AUTHORIZATION, &key_header)
+        .json(&serde_json::json!({}))
+        .send()
+        .await?;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+
+    key.access = vec![ApiKeyAccess {
+        group: AccessGroup::Users,
+        access_rights: vec![AccessRights::Update],
+    }];
+    let res = client
+        .put(format!("{}/api_keys/{}", get_backend_url(), key.name))
+        .headers(auth_headers.clone())
+        .json(&key)
+        .send()
+        .await?;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let res = client
+        .post(&url)
+        .header(AUTHORIZATION, &key_header)
+        .json(&serde_json::json!({}))
+        .send()
+        .await?;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    // can be sent again, the older link is replaced
+    let res = client
+        .post(&url)
+        .headers(auth_headers.clone())
+        .send()
+        .await?;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    // unknown user
+    let res = client
+        .post(format!(
+            "{}/users/{}/setup_mail",
+            get_backend_url(),
+            new_store_id()
+        ))
+        .header(AUTHORIZATION, &key_header)
+        .send()
+        .await?;
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+
+    let res = client
+        .delete(format!("{}/api_keys/{}", get_backend_url(), key.name))
+        .headers(auth_headers.clone())
+        .send()
+        .await?;
+    assert!(res.status().is_success());
+    let res = client
+        .delete(format!("{}/users/{}", get_backend_url(), user.id))
+        .headers(auth_headers)
+        .send()
+        .await?;
+    assert_eq!(res.status(), 204);
+
+    Ok(())
+}

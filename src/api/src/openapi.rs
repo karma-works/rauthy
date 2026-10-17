@@ -235,6 +235,7 @@ use utoipa::{OpenApi, openapi};
         users::post_webauthn_reg_start,
         users::post_webauthn_reg_finish,
         users::post_user_password_request_reset,
+        users::post_user_setup_mail,
         users::get_user_by_email,
         users::put_user_by_id,
         users::patch_user,
