@@ -536,7 +536,7 @@ WHERE sessions.exp > $12"#;
         let q = format!("%{q}%");
 
         const SEARCH_LIMIT_MAX: i64 = 1000;
-        let limit = std::cmp::min(std::cmp::max(limit, 1), SEARCH_LIMIT_MAX);
+        let limit = limit.clamp(1, SEARCH_LIMIT_MAX);
         let size_hint = max(limit as usize, 1);
 
         let sql = match idx {
