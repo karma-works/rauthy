@@ -83,10 +83,17 @@ def validate_lock(path, name, version):
         raise ValueError("Tool lock has unexpected local packages")
 
 
+def in_builder_container():
+    # BuildKit creates neither marker file; Dockerfile_builder sets the variable instead.
+    return os.geteuid() == 0 and (
+        Path("/.dockerenv").exists()
+        or Path("/run/.containerenv").exists()
+        or os.environ.get("RAUTHY_BUILDER_CONTAINER") == "1"
+    )
+
+
 def install(name, spec, install_root, target_dir):
-    if spec.get("builder_only") and not (
-        os.geteuid() == 0 and (Path("/.dockerenv").exists() or Path("/run/.containerenv").exists())
-    ):
+    if spec.get("builder_only") and not in_builder_container():
         raise ValueError("This tool bootstrap is only for the builder container")
     lock = DIRECTORY / "locks" / f"{name}.Cargo.lock"
     validate_lock(lock, name, spec["installed_version"])

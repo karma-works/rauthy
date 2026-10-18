@@ -9,13 +9,11 @@ import ssl
 import subprocess
 import tempfile
 
-from install import DIRECTORY, install
+from install import DIRECTORY, in_builder_container, install
 
 
 def main():
-    if os.geteuid() != 0 or not (
-        Path("/.dockerenv").exists() or Path("/run/.containerenv").exists()
-    ):
+    if not in_builder_container():
         raise SystemExit("Run this bootstrap only as root inside the builder container")
     if not ssl.OPENSSL_VERSION.startswith("OpenSSL 3.5.9 "):
         raise ValueError("Install fixed builder OpenSSL before bootstrapping Cargo")
