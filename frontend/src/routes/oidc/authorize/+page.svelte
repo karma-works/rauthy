@@ -24,6 +24,7 @@
     import Template from '$lib5/Template.svelte';
     import { useParam } from '$state/param.svelte';
     import ThemeSwitch from '$lib5/ThemeSwitch.svelte';
+    import LegalLinks from '$lib5/LegalLinks.svelte';
     import type { AuthProviderTemplate } from '$api/templates/AuthProvider.ts';
     import InputPassword from '$lib5/form/InputPassword.svelte';
     import type { WebauthnAdditionalData } from '$mfa/webauthn/types.ts';
@@ -843,6 +844,7 @@
 
             <ThemeSwitch absolute />
             <LangSelector absolute borderless />
+            <LegalLinks absolute />
         </ContentCenter>
     </div>
 </Main>

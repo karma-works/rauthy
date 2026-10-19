@@ -197,6 +197,11 @@ export interface I18n {
         accountLogin: string;
         adminLogin: string;
     };
+    legal: {
+        imprint: string;
+        privacy: string;
+        help: string;
+    };
     logout: {
         logout: string;
         confirmMsg: string;
@@ -270,6 +275,7 @@ export interface I18n {
         generate: string;
         newAccDesc1: string;
         newAccDesc2: string;
+        newAccDescPasskeyOnly: string;
         newAccount: string;
         passwordReset: string;
         password: string;

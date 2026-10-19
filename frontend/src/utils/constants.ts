@@ -56,6 +56,7 @@ export const TPL_ERROR_TEXT = 'tpl_error_text';
 export const TPL_DEVICE_USER_CODE_LENGTH = 'tpl_device_user_code_length';
 export const TPL_IS_OTP_ENABLED = 'tpl_is_otp_enabled';
 export const TPL_IS_REG_OPEN = 'tpl_is_reg_open';
+export const TPL_LEGAL_LINKS = 'tpl_legal_links';
 export const TPL_LOGIN_ACTION = 'tpl_login_action';
 export const TPL_OTP_LENGTH = 'tpl_otp_length';
 export const TPL_PASSKEY_ACCOUNTS_NO_PASSWORD = 'tpl_passkey_accounts_no_password';

@@ -75,13 +75,15 @@
 
     $effect(() => {
         if (success) {
+            // the passkey success text asks for a second passkey -> leave more time to read it
+            let delay = accountTypeNew === 'passkey' ? 10000 : 5000;
             setTimeout(() => {
                 if (redirectUri) {
                     window.location.replace(normalizeClientUri(redirectUri));
                 } else {
                     navigateToAccount();
                 }
-            }, 5000);
+            }, delay);
         }
     });
 
@@ -305,8 +307,16 @@
 
         {#if success}
             <p>
-                {t.passwordReset.success1}
-                <br />
+                {#if accountTypeNew === 'passkey'}
+                    {t.passwordReset.successPasskey1}
+                    <br />
+                    {t.passwordReset.successPasskey2}
+                    <br />
+                    <br />
+                {:else}
+                    {t.passwordReset.success1}
+                    <br />
+                {/if}
                 {t.passwordReset.success2}
                 <br />
                 <br />
@@ -320,11 +330,15 @@
                 <div>
                     {#if requestType.get()?.startsWith('new_user')}
                         <h1>{t.passwordReset.newAccount}</h1>
-                        <p>{t.passwordReset.newAccDesc1}</p>
-                        <p>
-                            {t.passwordReset.newAccDesc2}
-                            <A href={t.passwordReset.fidoLink} target="_blank">FIDO Alliance</A>
-                        </p>
+                        {#if tplData.passkey_only}
+                            <p>{t.passwordReset.newAccDescPasskeyOnly}</p>
+                        {:else}
+                            <p>{t.passwordReset.newAccDesc1}</p>
+                            <p>
+                                {t.passwordReset.newAccDesc2}
+                                <A href={t.passwordReset.fidoLink} target="_blank">FIDO Alliance</A>
+                            </p>
+                        {/if}
 
                         {#if !tplData.passkey_only}
                             <div class="typeChoice">
@@ -365,25 +379,15 @@
                                         required
                                     />
                                     <div class="btnReg">
-                                        <Button type="submit" level={success ? 2 : 1}>
+                                        <Button type="submit">
                                             {t.mfa.register}
                                         </Button>
                                     </div>
                                 </Form>
-
-                                {#if success}
-                                    <div class="success">
-                                        <p>{t.passwordReset.successPasskey1}</p>
-                                        <p>{t.passwordReset.successPasskey2}</p>
-                                        <Button onclick={navigateToAccount}>
-                                            {t.passwordReset.accountLogin}
-                                        </Button>
-                                    </div>
-                                {/if}
                             </div>
                         {/if}
                     {:else if requestType.get()?.startsWith('password_reset')}
-                        <h1>Password Reset</h1>
+                        <h1>{t.passwordReset.passwordReset}</h1>
                         {@render passwordInput()}
                     {/if}
 

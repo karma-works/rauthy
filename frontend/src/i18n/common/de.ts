@@ -251,6 +251,11 @@ export const I18nDe: I18n = {
         accountLogin: 'Account',
         adminLogin: 'Admin',
     },
+    legal: {
+        imprint: 'Impressum',
+        privacy: 'Datenschutz',
+        help: 'Hilfe',
+    },
     logout: {
         logout: 'Logout',
         confirmMsg: 'Sind Sie sicher, dass Sie sich ausloggen und die Session beenden möchten?',
@@ -335,6 +340,8 @@ export const I18nDe: I18n = {
             einfacheren\nund schnelleren Login.\nDazu wird mindestens ein Passkey (Yubikey, Apple 
             Touch ID, Windows Hello, ...) benötigt, welcher dem\nFIDO2 Standard gerecht wird. Für 
             weitere Informationen können Sie diesem Link folgen: `,
+        newAccDescPasskeyOnly:
+            'Für Ihr Konto richten Sie einen Passkey ein. Damit melden Sie sich ohne Passwort an, z. B. mit Fingerabdruck, Gesichtserkennung oder der PIN Ihres Geräts.',
         newAccount: 'Neuer Account',
         passwordReset: 'Passwort Zurücksetzen',
         password: 'Passwort',
@@ -347,10 +354,9 @@ export const I18nDe: I18n = {
         success2: 'Sie werden in Kürze weitergeleitet.',
         success3: 'Sollte Sie nicht weitergeleitet werden, klicken Sie bitte hier:',
         successPasskey1: 'Der neue Passkey wurde erfolgreich registriert.',
-        successPasskey2: `Bitte loggen Sie sich direkt in Ihren Account ein und registrieren\nSie 
-            mindestens einen weiteren Backup Passkey. Ein passwortloser Account kann nicht den 
-            Passwort\nReset via E-Mail nutzen für den Fall, dass der derzeitige Passkey abhanden 
-            kommt.`,
+        successPasskey2: `Bitte richten Sie nach der Anmeldung einen zweiten Passkey ein, z. B. auf
+            Ihrem Smartphone. Geht Ihr einziger Passkey verloren, können Sie sich sonst nicht mehr
+            anmelden.`,
     },
     register: {
         alreadyRegisteredEmail: 'E-Mail is bereits registriert',

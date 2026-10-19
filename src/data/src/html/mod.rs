@@ -155,6 +155,7 @@ impl HtmlCached {
                                 .webauthn
                                 .passkey_accounts_no_password,
                         ),
+                        HtmlTemplate::LegalLinks,
                     ],
                 )
             }

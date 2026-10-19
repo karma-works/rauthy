@@ -225,6 +225,11 @@ export const I18nZh: I18n = {
         accountLogin: '账户登录',
         adminLogin: '管理员登录',
     },
+    legal: {
+        imprint: '法律声明',
+        privacy: '隐私',
+        help: '帮助',
+    },
     logout: {
         logout: '退出登录',
         confirmMsg: '您确定要退出登录并结束会话吗？',
@@ -303,6 +308,8 @@ export const I18nZh: I18n = {
             您需要至少一个通行密钥（Yubikey、Apple Touch ID、Windows Hello等）
             来创建此类账户。您的设备必须支持FIDO2标准。
             关于此的更多信息，您可以关注此链接：`,
+        newAccDescPasskeyOnly:
+            '您的账户使用通行密钥。您无需密码即可登录，例如使用指纹、面容或设备 PIN 码。',
         newAccount: '新账户',
         passwordReset: '密码重置',
         password: '密码',

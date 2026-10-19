@@ -240,6 +240,11 @@ export const I18nEn: I18n = {
         accountLogin: 'Account',
         adminLogin: 'Admin',
     },
+    legal: {
+        imprint: 'Legal Notice',
+        privacy: 'Privacy',
+        help: 'Help',
+    },
     logout: {
         logout: 'Logout',
         confirmMsg: 'Do you really want to logout and end your session?',
@@ -323,6 +328,8 @@ export const I18nEn: I18n = {
             stronger security. You will need at least one passkey (Yubikey, Apple Touch ID, Windows 
             Hello,\n...) to create such an account. Your device must embrace the FIDO2 standard. 
             For more information\nabout this, you may follow this link: `,
+        newAccDescPasskeyOnly:
+            'Your account uses a passkey. You sign in without a password, for example with your fingerprint, face or the PIN of your device.',
         newAccount: 'New Account',
         passwordReset: 'Password Reset',
         password: 'Password',
@@ -335,9 +342,8 @@ export const I18nEn: I18n = {
         success2: 'You will be redirected shortly.',
         success3: 'If you are not being redirected, please click here:',
         successPasskey1: 'Your new passkey has been registered successfully.',
-        successPasskey2: `Please log into your account and register a second backup key as\nsoon as 
-            possible. With a passkey only account, you wil not be able to use a password reset via\n
-            E-Mail in case you lose your current key.`,
+        successPasskey2: `Please sign in and register a second passkey, for example on your phone.
+            If your only passkey gets lost, you cannot sign in anymore.`,
     },
     register: {
         alreadyRegisteredEmail: 'E-Mail is already registered',

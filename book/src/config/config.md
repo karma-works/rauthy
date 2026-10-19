@@ -2104,6 +2104,19 @@ filter_lang_common = ['en', 'de', 'fr', 'ja', 'ko', 'nb', 'nl', 'ru', 'uk', 'zhh
 # overwritten by: FILTER_LANG_ADMIN
 filter_lang_admin = ['en', 'de', 'fr', 'ja', 'ko', 'nb', 'nl', 'ru', 'uk', 'zhhans']
 
+[legal]
+# Links to your legal notice ("Impressum"), privacy policy and help
+# pages. Each one that is set shows up in the footer of the login and
+# account pages and opens in a new tab. Only `https://` and `http://`
+# links are accepted.
+#
+# overwritten by: LEGAL_IMPRINT_URL
+#imprint_url = 'https://example.com/imprint'
+# overwritten by: LEGAL_PRIVACY_URL
+#privacy_url = 'https://example.com/privacy'
+# overwritten by: LEGAL_HELP_URL
+#help_url = 'https://example.com/help'
+
 [lifetimes]
 # Set the grace time duration for how long in seconds the refresh
 # token should still be valid after usage. Keep this value small,
@@ -3089,6 +3102,15 @@ rp_origin = 'http://localhost:8080'
 # default: false
 # overwritten by: WEBAUTHN_PASSKEY_ACCOUNTS_NO_PASSWORD
 #passkey_accounts_no_password = false
+
+# If set to `true`, a user gets an E-Mail each time a passkey was
+# added to the account, including the first one during the account
+# setup. This makes a passkey that was added without the user's
+# knowledge visible.
+#
+# default: false
+# overwritten by: WEBAUTHN_NOTIFY_PASSKEY_ADDED
+#notify_passkey_added = false
 
 # When you want to migrate an existing deployment over to enforced
 # attestation, you usually have a chicken-and-egg problem: You

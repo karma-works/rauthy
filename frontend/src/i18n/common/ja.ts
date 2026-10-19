@@ -230,6 +230,11 @@ export const I18nJa: I18n = {
         accountLogin: 'アカウント',
         adminLogin: '管理',
     },
+    legal: {
+        imprint: '運営者情報',
+        privacy: 'プライバシー',
+        help: 'ヘルプ',
+    },
     logout: {
         logout: 'ログアウト',
         confirmMsg: 'ログアウトしてセッションを終了しますか？',
@@ -305,6 +310,8 @@ export const I18nJa: I18n = {
             'アカウントの種類は2つから選べます: パスワードを使わない方式と、従来のパスワード方式です',
         newAccDesc2:
             'パスワードを使わない方式のほうが、より強い安全性を得られるためおすすめです。\nこの方式のアカウントを作るには、Passkey（YubiKey、Apple Touch ID、Windows Hello\nなど）が少なくとも1つ必要です。お使いの端末が FIDO2 規格に対応している必要があります。\n詳しくは次のリンクをご覧ください: ',
+        newAccDescPasskeyOnly:
+            'このアカウントではパスキーを使用します。指紋、顔認証、または端末の PIN を使い、パスワードなしでサインインします。',
         newAccount: '新しいアカウント',
         passwordReset: 'パスワードのリセット',
         password: 'パスワード',

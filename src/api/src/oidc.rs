@@ -192,6 +192,7 @@ pub async fn get_authorize(
         RauthyConfig::get().vars.user_registration.enable,
     ));
     templates.push(HtmlTemplate::PasskeyRegType);
+    templates.push(HtmlTemplate::LegalLinks);
     if RauthyConfig::get().vars.atproto.enable {
         let provider_atproto = AuthProvider::find_by_iss(PROVIDER_ATPROTO.to_string()).await?;
         templates.push(HtmlTemplate::AtprotoId(provider_atproto.id));

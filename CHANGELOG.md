@@ -46,6 +46,39 @@ same values as the id token of the same token set:
 Both names were reserved already, so a custom attribute emitted at the token root cannot shadow
 them.
 
+#### Passkey E-Mails in the User's Language
+
+The E-Mail about a Passkey removed by an admin used to be English only. It now uses the language
+of the user. A new, optional `webauthn.notify_passkey_added` (`WEBAUTHN_NOTIFY_PASSKEY_ADDED`)
+sends an E-Mail each time a Passkey was added to an account, so that a Passkey added without the
+user's knowledge does not go unnoticed.
+
+```toml
+[webauthn]
+# default: false
+# overwritten by: WEBAUTHN_NOTIFY_PASSKEY_ADDED
+notify_passkey_added = false
+```
+
+#### Legal Links
+
+A new, optional `[legal]` section adds links to a legal notice, privacy policy and help page to
+the footer of the login and account pages. Only `https://` and `http://` links are accepted.
+
+```toml
+[legal]
+imprint_url = 'https://example.com/imprint'
+privacy_url = 'https://example.com/privacy'
+help_url = 'https://example.com/help'
+```
+
+#### Account Setup Texts
+
+After registering a Passkey from the "new account" E-Mail, the page said that the password was
+reset successfully. It now confirms the new Passkey and asks for a second one. With
+`webauthn.new_user_passkey_only`, the setup page no longer explains the choice between a password
+and a Passkey.
+
 #### Passkey-only Account Setup
 
 A new, optional `webauthn.new_user_passkey_only` (`WEBAUTHN_NEW_USER_PASSKEY_ONLY`) restricts the
