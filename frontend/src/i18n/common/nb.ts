@@ -238,6 +238,11 @@ export const I18nNb: I18n = {
         accountLogin: 'Konto',
         adminLogin: 'Admin',
     },
+    legal: {
+        imprint: 'Juridisk informasjon',
+        privacy: 'Personvern',
+        help: 'Hjelp',
+    },
     logout: {
         logout: 'Logg ut',
         confirmMsg: 'Er du sikker på at du vil logge ut og avslutte økten?',
@@ -322,6 +327,8 @@ export const I18nNb: I18n = {
             raskere pålogging. For å bruke denne typen konto, trengs det minst én passkey (f.eks. 
             Yubikey, Apple Touch ID, Windows Hello, ...) som oppfyller FIDO2-standarden. For mer 
             informasjon, følg denne lenken: `,
+        newAccDescPasskeyOnly:
+            'Kontoen din bruker en passkey. Du logger inn uten passord, for eksempel med fingeravtrykk, ansikt eller PIN-koden til enheten din.',
         newAccount: 'Ny konto',
         passwordReset: 'Tilbakestill passord',
         password: 'Passord',

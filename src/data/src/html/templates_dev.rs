@@ -86,6 +86,7 @@ impl HtmlTemplate {
             )),
             // the LoginAction requires a complex logic + validation.
             // Simply always return None during local dev.
+            "tpl_legal_links" => Ok((Self::LegalLinks, None)),
             "tpl_login_action" => Ok((Self::LoginAction(FrontendAction::None), None)),
             // "tpl_client_name" => todo!("extract info from referrer?"),
             // "tpl_client_url" => todo!("extract info from referrer?"),

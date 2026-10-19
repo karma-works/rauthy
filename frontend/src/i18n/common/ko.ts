@@ -233,6 +233,11 @@ export const I18nKo: I18n = {
         accountLogin: '계정',
         adminLogin: '관리',
     },
+    legal: {
+        imprint: '법적 고지',
+        privacy: '개인정보 처리방침',
+        help: '도움말',
+    },
     logout: {
         logout: '로그아웃',
         confirmMsg: '로그아웃하고 세션을 종료하겠습니까?',
@@ -313,6 +318,8 @@ export const I18nKo: I18n = {
         newAccDesc2: `비밀번호가 없는 계정은 더 강력한 보안 방법을 제공하기 때문에 항상 선호됩니다.\n이러한 
             계정을 생성하려면 최소 하나의 패스키(Yubikey, Apple Touch ID, Windows Hello, ...)가 필요합니다. 
             기기가 FIDO2 표준을 지원해야 합니다.\n더 자세한 사항은 다음 링크를 참고해 주세요: `,
+        newAccDescPasskeyOnly:
+            '이 계정은 패스키를 사용합니다. 지문, 얼굴 인식 또는 기기 PIN으로 비밀번호 없이 로그인합니다.',
         newAccount: '새 계정',
         passwordReset: '비밀번호 초기화',
         password: '비밀번호',

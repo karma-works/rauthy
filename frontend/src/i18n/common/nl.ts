@@ -242,6 +242,11 @@ export const I18nNl: I18n = {
         accountLogin: 'Account',
         adminLogin: 'Beheerder',
     },
+    legal: {
+        imprint: 'Colofon',
+        privacy: 'Privacy',
+        help: 'Help',
+    },
     logout: {
         logout: 'Uitloggen',
         confirmMsg: 'Weet u zeker dat u wilt uitloggen en uw sessie wilt beëindigen?',
@@ -326,6 +331,8 @@ export const I18nNl: I18n = {
             beveiliging biedt. U heeft minimaal één passkey nodig (Yubikey, Apple Touch ID, Windows
             Hello,\n...) om zo'n account aan te maken. Uw apparaat moet de FIDO2-standaard
             ondersteunen.\nVoor meer informatie kunt u deze link volgen: `,
+        newAccDescPasskeyOnly:
+            'Je account gebruikt een passkey. Je logt in zonder wachtwoord, bijvoorbeeld met je vingerafdruk, gezicht of de pincode van je apparaat.',
         newAccount: 'Nieuw account',
         passwordReset: 'Wachtwoord reset',
         password: 'Wachtwoord',

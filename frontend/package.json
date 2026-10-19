@@ -12,6 +12,7 @@
         "test:webauthn": "svelte-kit sync && node --test tests/webauthn-auth.node.mjs",
         "test:redirect-uri": "svelte-kit sync && node --test tests/redirect-uri.node.mjs",
         "test:password-reset": "npm run build && node --test tests/password-reset.node.mjs",
+        "test:new-user-passkey": "npm run build && node --test tests/new-user-passkey.node.mjs",
         "lint": "prettier --check . && eslint .",
         "format": "./node_modules/prettier/bin/prettier.cjs --write .",
         "format-check": "./node_modules/prettier/bin/prettier.cjs -c ."

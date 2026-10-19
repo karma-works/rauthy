@@ -275,6 +275,7 @@ pub struct Vars {
     pub hashing: VarsHashing,
     pub http_client: VarsHttpClient,
     pub i18n: VarsI18n,
+    pub legal: VarsLegal,
     pub lifetimes: VarsLifetimes,
     pub logging: VarsLogging,
     pub matrix: VarsMatrix,
@@ -548,6 +549,7 @@ impl Default for Vars {
                 danger_insecure: false,
                 root_ca_bundle: None,
             },
+            legal: VarsLegal::default(),
             i18n: VarsI18n {
                 filter_lang_common: vec![
                     "de".into(),
@@ -1273,6 +1275,7 @@ Your account has not been compromised and no data was leaked."#.into()),
                 passkey_reg_type: vec![PasskeyRegType::Default, PasskeyRegType::ResidentKey],
                 new_user_passkey_only: false,
                 passkey_accounts_no_password: false,
+                notify_passkey_added: false,
             },
             atproto: VarsAtproto { enable: false },
         }
@@ -1344,6 +1347,7 @@ impl Vars {
         slf.parse_otp(&mut table);
         slf.parse_http_client(&mut table);
         slf.parse_i18n(&mut table);
+        slf.parse_legal(&mut table);
         slf.parse_lifetimes(&mut table);
         slf.parse_logging(&mut table);
         slf.parse_matrix(&mut table);
@@ -3029,6 +3033,22 @@ impl Vars {
         check_table_empty(table, "i18n");
     }
 
+    fn parse_legal(&mut self, table: &mut toml::Table) {
+        let mut table = t_table(table, "legal");
+
+        if let Some(v) = t_str(&mut table, "legal", "imprint_url", "LEGAL_IMPRINT_URL") {
+            self.legal.imprint_url = Some(validate_legal_url("imprint_url", v));
+        }
+        if let Some(v) = t_str(&mut table, "legal", "privacy_url", "LEGAL_PRIVACY_URL") {
+            self.legal.privacy_url = Some(validate_legal_url("privacy_url", v));
+        }
+        if let Some(v) = t_str(&mut table, "legal", "help_url", "LEGAL_HELP_URL") {
+            self.legal.help_url = Some(validate_legal_url("help_url", v));
+        }
+
+        check_table_empty(table, "legal");
+    }
+
     fn parse_lifetimes(&mut self, table: &mut toml::Table) {
         let mut table = t_table(table, "lifetimes");
 
@@ -3942,6 +3962,14 @@ impl Vars {
         ) {
             self.webauthn.passkey_accounts_no_password = v;
         }
+        if let Some(v) = t_bool(
+            &mut table,
+            "webauthn",
+            "notify_passkey_added",
+            "WEBAUTHN_NOTIFY_PASSKEY_ADDED",
+        ) {
+            self.webauthn.notify_passkey_added = v;
+        }
 
         check_table_empty(table, "webauthn");
     }
@@ -4413,6 +4441,23 @@ pub struct VarsI18n {
     pub filter_lang_admin: Vec<Cow<'static, str>>,
 }
 
+/// Links to the legal notice, privacy policy and help pages, shown in the footer of the login
+/// and account pages.
+#[derive(Debug, Default, Serialize)]
+pub struct VarsLegal {
+    pub imprint_url: Option<String>,
+    pub privacy_url: Option<String>,
+    pub help_url: Option<String>,
+}
+
+/// The links end up in an `href`, so only plain web links are accepted.
+fn validate_legal_url(key: &str, url: String) -> String {
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        panic!("`legal.{key}` must start with `https://` or `http://`, found: {url}");
+    }
+    url
+}
+
 #[derive(Debug)]
 pub struct VarsLifetimes {
     pub refresh_token_grace_time: Duration,
@@ -4662,6 +4707,8 @@ pub struct VarsWebauthn {
     pub new_user_passkey_only: bool,
     /// If `true`, a passkey-only account cannot add a password to itself on the account page.
     pub passkey_accounts_no_password: bool,
+    /// If `true`, the user gets an E-Mail each time a passkey was added to the account.
+    pub notify_passkey_added: bool,
 }
 
 impl VarsWebauthn {
@@ -5088,6 +5135,53 @@ mod tests {
         vars.webauthn.passkey_reg_type = vec![PasskeyRegType::Default];
         assert!(vars.webauthn.is_passkey_reg_type_allowed(false));
         assert!(!vars.webauthn.is_passkey_reg_type_allowed(true));
+    }
+
+    fn parse_legal(toml_src: &str) -> Vars {
+        let mut table: toml::Table = toml::from_str(toml_src).unwrap();
+        let mut vars = Vars::default();
+        vars.parse_legal(&mut table);
+        vars
+    }
+
+    #[test]
+    fn test_parse_legal() {
+        let vars = parse_legal("");
+        assert!(vars.legal.imprint_url.is_none());
+        assert!(vars.legal.privacy_url.is_none());
+        assert!(vars.legal.help_url.is_none());
+
+        let vars = parse_legal(
+            r#"
+            [legal]
+            imprint_url = 'https://example.com/impressum'
+            privacy_url = 'https://example.com/datenschutz'
+            help_url = 'http://localhost:5173/hilfe'
+            "#,
+        );
+        assert_eq!(
+            vars.legal.imprint_url.as_deref(),
+            Some("https://example.com/impressum")
+        );
+        assert_eq!(
+            vars.legal.privacy_url.as_deref(),
+            Some("https://example.com/datenschutz")
+        );
+        assert_eq!(
+            vars.legal.help_url.as_deref(),
+            Some("http://localhost:5173/hilfe")
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "legal.help_url")]
+    fn test_parse_legal_rejects_other_schemes() {
+        parse_legal(
+            r#"
+            [legal]
+            help_url = 'javascript:alert(1)'
+            "#,
+        );
     }
 
     fn parse_eph(toml_src: &str) -> Vars {

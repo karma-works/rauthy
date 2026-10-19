@@ -1,4 +1,5 @@
 use crate::database::{Cache, DB};
+use crate::email::notification::send_email_passkey_added;
 use crate::entity::users::User;
 use crate::entity::webauthn::aaguid::attested_aaguid;
 use crate::entity::webauthn::ceremony::{RegistrationState, requires_uv};
@@ -204,6 +205,9 @@ pub async fn reg_finish(
             }
 
             let user_id = user.id.clone();
+            // `user` is moved below for the very first passkey
+            let notify_user = cfg.notify_passkey_added.then(|| user.clone());
+            let passkey_name = payload.passkey_name.clone();
             let create_user = if user.webauthn_user_id.is_none() {
                 user.webauthn_user_id = Some(reg_data.passkey_user_id.to_string());
 
@@ -252,6 +256,10 @@ pub async fn reg_finish(
             .await?;
 
             info!(user_id, "New PasskeyEntity saved successfully");
+
+            if let Some(user) = notify_user {
+                send_email_passkey_added(&user, &passkey_name).await;
+            }
         }
         Err(err) => {
             error!(?err, "Webauthn Reg Finish");

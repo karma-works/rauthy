@@ -245,6 +245,11 @@ export const I18nFr: I18n = {
         accountLogin: 'Compte',
         adminLogin: 'Administrateur',
     },
+    legal: {
+        imprint: 'Mentions légales',
+        privacy: 'Confidentialité',
+        help: 'Aide',
+    },
     logout: {
         logout: 'Se déconnecter',
         confirmMsg: 'Voulez-vous vraiment vous déconnecter et mettre fin à votre session ?',
@@ -330,6 +335,8 @@ export const I18nFr: I18n = {
             Vous aurez besoin d'au moins un mot de passe (Yubikey, Apple Touch ID, Windows Hello, ...)\n
             pour créer un tel compte. Votre appareil doit adopter la norme FIDO2.\n
             Pour plus d'informations à ce sujet, vous pouvez suivre ce lien : `,
+        newAccDescPasskeyOnly:
+            "Votre compte utilise une clé d'accès. Vous vous connectez sans mot de passe, par exemple avec votre empreinte digitale, votre visage ou le code PIN de votre appareil.",
         newAccount: 'Nouveau compte',
         passwordReset: 'Réinitialisation du mot de passe',
         password: 'Mot de passe',

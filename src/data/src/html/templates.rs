@@ -1,5 +1,5 @@
 use crate::language::Language;
-use crate::rauthy_config::RauthyConfig;
+use crate::rauthy_config::{RauthyConfig, VarsLegal};
 use actix_web::http::StatusCode;
 use actix_web::{HttpResponse, HttpResponseBuilder};
 use askama::Template;
@@ -64,6 +64,8 @@ pub enum HtmlTemplate {
     DeviceUserCodeLength(u8),
     IsOtpEnabled(bool),
     IsRegOpen(bool),
+    /// `[legal]` links as JSON
+    LegalLinks,
     LoginAction(FrontendAction),
     OtpLength(u8),
     PasskeyAccountsNoPassword(bool),
@@ -93,6 +95,7 @@ impl HtmlTemplate {
             Self::DeviceUserCodeLength(_) => "tpl_device_user_code_length",
             Self::IsOtpEnabled(_) => "tpl_is_otp_enabled",
             Self::IsRegOpen(_) => "tpl_is_reg_open",
+            Self::LegalLinks => "tpl_legal_links",
             Self::LoginAction(_) => "tpl_login_action",
             Self::OtpLength(_) => "tpl_otp_length",
             Self::PasskeyAccountsNoPassword(_) => "tpl_passkey_accounts_no_password",
@@ -123,6 +126,7 @@ impl HtmlTemplate {
             Self::DeviceUserCodeLength(i) => i.to_string(),
             Self::IsOtpEnabled(i) => i.to_string(),
             Self::IsRegOpen(i) => i.to_string(),
+            Self::LegalLinks => legal_links_json(&RauthyConfig::get().vars.legal),
             Self::LoginAction(i) => i.to_string(),
             Self::OtpLength(i) => i.to_string(),
             Self::PasskeyAccountsNoPassword(i) => i.to_string(),
@@ -135,6 +139,16 @@ impl HtmlTemplate {
             }
         }
     }
+}
+
+/// Templates are rendered unescaped into the HTML. The JSON escapes keep the config values from
+/// closing the `<template>` tag, and keep `&` intact when the UI reads it via `innerHTML`.
+fn legal_links_json(legal: &VarsLegal) -> String {
+    serde_json::to_string(legal)
+        .unwrap()
+        .replace('&', "\\u0026")
+        .replace('<', "\\u003c")
+        .replace('>', "\\u003e")
 }
 
 #[derive(Default, Template)]
@@ -1052,5 +1066,31 @@ impl UserPasswordResetHtml<'_> {
         }
         .render()
         .expect("rendering password_reset.html")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_legal_links_json_is_safe_in_html() {
+        let legal = VarsLegal {
+            imprint_url: Some("https://example.com/a?b=1&c=</template><script>".to_string()),
+            privacy_url: None,
+            help_url: None,
+        };
+        let json = legal_links_json(&legal);
+        assert!(!json.contains('<'));
+        assert!(!json.contains('>'));
+        assert!(!json.contains('&'));
+
+        // still valid JSON with the original value
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            v["imprint_url"],
+            "https://example.com/a?b=1&c=</template><script>"
+        );
+        assert!(v["privacy_url"].is_null());
     }
 }

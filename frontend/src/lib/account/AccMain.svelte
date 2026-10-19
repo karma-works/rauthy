@@ -26,6 +26,7 @@
     import A from '$lib5/A.svelte';
     import ThemeSwitch from '$lib5/ThemeSwitch.svelte';
     import LangSelector from '$lib5/LangSelector.svelte';
+    import LegalLinks from '$lib5/LegalLinks.svelte';
     import { useSession } from '$state/session.svelte';
     import AccOther from '$lib/account/AccOther.svelte';
     import AccPAM from '$lib/account/AccPAM.svelte';
@@ -211,6 +212,7 @@
             {t.account.navLogout}
         </div>
     </Button>
+    <LegalLinks />
 {/snippet}
 
 <div class="wrapper">
