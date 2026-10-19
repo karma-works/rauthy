@@ -10,7 +10,7 @@ use rauthy_common::is_hiqlite;
 use rauthy_derive::FromPgRow;
 use rauthy_error::{ErrorResponse, ErrorResponseType};
 use std::collections::BTreeMap;
-use tracing::error;
+use tracing::{debug, error};
 use uuid::Uuid;
 use webauthn_rs::prelude::{AttestationCaList, AttestationCaListBuilder};
 
@@ -22,9 +22,14 @@ pub struct MdsAuthenticator {
 }
 
 impl MdsAuthenticator {
-    pub async fn clear_cache() -> Result<(), ErrorResponse> {
+    pub(super) async fn clear_snapshot_cache(
+        metadata: &super::metadata::MdsMetadata,
+    ) -> Result<(), ErrorResponse> {
         DB::hql()
-            .delete(Cache::App, IDX_WEBAUTHN_MDS_CA_LIST)
+            .delete(
+                Cache::App,
+                format!("{IDX_WEBAUTHN_MDS_CA_LIST}_{}", metadata.cache_tag()),
+            )
             .await?;
         Ok(())
     }
@@ -59,8 +64,17 @@ impl MdsAuthenticator {
     }
 
     pub async fn get_ca_list() -> Result<Option<AttestationCaList>, ErrorResponse> {
+        let metadata = match super::metadata::MdsMetadata::require_verified().await {
+            Ok(metadata) => metadata,
+            Err(err) if !force_mds_attestation() => {
+                debug!("Optional FIDO attestation unavailable: {err}");
+                return Ok(None);
+            }
+            Err(err) => return Err(err),
+        };
+        let cache_idx = format!("{IDX_WEBAUTHN_MDS_CA_LIST}_{}", metadata.cache_tag());
         if let Some(json) = DB::hql()
-            .get::<_, _, Option<String>>(Cache::App, IDX_WEBAUTHN_MDS_CA_LIST)
+            .get::<_, _, Option<String>>(Cache::App, &cache_idx)
             .await?
         {
             return Ok(json.map(|j| serde_json::from_str(&j).unwrap()));
@@ -74,7 +88,7 @@ impl MdsAuthenticator {
 
         // App cache on purpose. It's being cleared on startup so that config changes are reflected.
         DB::hql()
-            .put(Cache::App, IDX_WEBAUTHN_MDS_CA_LIST, &json, Some(12 * 3600))
+            .put(Cache::App, cache_idx, &json, Some(12 * 3600))
             .await?;
 
         Ok(ca_list)

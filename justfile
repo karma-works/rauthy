@@ -12,9 +12,11 @@ docker := `which docker || which podman || which container || echo 'no-container
 map_docker_user := if file_name(docker) == "podman" { "" } else { "-u $USER" }
 npm := `echo ${NPM:-npm}`
 cargo_home := `echo ${CARGO_HOME:-$HOME/.cargo}`
-node_image := "node:22"
-builder_image := "ghcr.io/sebadob/rauthy-builder"
-builder_tag_date := "20260519"
+node_image := "node:26.11.1-bookworm@sha256:f1233c415b41ffcf237c717b3dea92e9d4ea006e0e4c71edcb790605d74f5404"
+distroless_image := "gcr.io/distroless/cc-debian12:nonroot@sha256:9dac0a79194e45a7da0158a9c6da57b217585af0786db3845d1f0ec1a0dd182f"
+mailcrab_image := "docker.io/marlonb/mailcrab@sha256:dd0e3933e35200ed9956aeb76bb27fc700dd452bd6586448107ccf8fe411c0a1"
+postgres_image := "docker.io/library/postgres:17.11-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24"
+nginx_image := "docker.io/library/nginx@sha256:f9ea18bfa4fad859e1ed38259d711da7ccad2c3516e875cec3351a57c859f571"
 container_mailcrab := "rauthy-mailcrab"
 container_postgres := "rauthy-db-postgres"
 container_cargo_registry := "/usr/local/cargo/registry"
@@ -33,13 +35,13 @@ setup:
     set -euxo pipefail
     clear
 
-    echo "npm install to set up the frontend"
+    echo "npm ci to set up the frontend"
     cd frontend/
-    {{ npm }} install
+    {{ npm }} ci
     cd ..
 
-    echo "Installing wasm-pack"
-    cargo install wasm-pack mdbook mdbook-admonish
+    echo "Installing reviewed WASM and documentation tools"
+    python3 assets/build_tools/install.py wasm-pack wasm-bindgen-cli mdbook mdbook-admonish
 
     echo "Building WASM modules"
     just build-wasm
@@ -89,7 +91,7 @@ mailcrab-start:
             -p 1025:1025 \
             -p 1080:1080 \
             --name {{ container_mailcrab }} \
-            docker.io/marlonb/mailcrab || echo ">>> Mailcrab is already running - nothing to do"
+            {{ mailcrab_image }} || echo ">>> Mailcrab is already running - nothing to do"
     fi
 
 # Stops mailcrab
@@ -114,7 +116,7 @@ postgres-start:
             -e POSTGRES_DB=rauthy \
             -p 5432:5432 \
             --name {{ container_postgres }} \
-            docker.io/library/postgres:17.2-alpine || echo ">>> Postgres is already running - nothing to do"
+            {{ postgres_image }} || echo ">>> Postgres is already running - nothing to do"
     fi
 
     while ! curl localhost:5432 2>&1 | grep 'Empty reply from server' ; do
@@ -143,7 +145,7 @@ nginx-start:
             -v ./assets/nginx/access.log:/var/log/nginx/access.log \
             --network host \
             --name nginx-rauthy-test \
-            nginx
+            {{ nginx_image }}
 
 # Just uses `cargo fmt --all`
 fmt:
@@ -158,14 +160,14 @@ clippy:
     #!/usr/bin/env bash
     set -euxo pipefail
     clear
-    cargo clippy
+    cargo clippy --locked
 
 # fetch the FIDO MDS dataset from the live metadata service into the embedded asset
 fido-mds-prep source="https://mds.fidoalliance.org/" out="assets/fido_mds/dataset.bin":
     #!/usr/bin/env bash
     set -euxo pipefail
 
-    cargo run --bin fido-mds-prep -- --source {{ source }} --out {{ out }}
+    cargo run --locked --bin fido-mds-prep -- --source {{ source }} --out {{ out }}
 
 # delete the local hiqlite database
 delete-hiqlite:
@@ -186,12 +188,12 @@ run ty="hiqlite" node_id="1":
     clear
 
     if [[ {{ ty }} == "postgres" ]]; then
-      {{ postgres }} cargo run -- serve
+      {{ postgres }} cargo run --locked -- serve
     elif [[ {{ ty }} == "ui" ]]; then
       cd frontend
       {{ npm }} run dev -- --host=0.0.0.0
     elif [[ {{ ty }} == "hiqlite" ]]; then
-      cargo run -- serve
+      cargo run --locked -- serve
     fi
 
 # runs (and stops) Postgres, Mailcrab, normal `just run` command
@@ -204,9 +206,9 @@ watch ty="hiqlite":
     if [[ {{ ty }} == "postgres" ]]; then
       just postgres-start
       sleep 2
-      command="{{ postgres }} cargo run -- serve"
+      command="{{ postgres }} cargo run --locked -- serve"
     elif [[ {{ ty }} == "hiqlite" ]]; then
-      command="cargo run -- serve"
+      command="cargo run --locked -- serve"
     fi
 
     watchexec -r -w src -w templates -- $command
@@ -223,15 +225,15 @@ test-backend: test-backend-stop delete-hiqlite
     #!/usr/bin/env bash
     set -euxo pipefail
     clear
-    {{ test_env_vars }} cargo run -- serve -c config-test.toml --test
+    {{ test_env_vars }} cargo run --locked -- serve -c config-test.toml --test
 
 # starts the test backend with memory profiling - expects `heaptrack` to be available
 test-backend-heaptrack: test-backend-stop delete-hiqlite
     #!/usr/bin/env bash
     set -euxo pipefail
     clear
-    #RUSTFLAGS=-g cargo build --profile profiling --features profiling
-    RUSTFLAGS="--cfg tokio_unstable -C force-frame-pointers=yes" cargo build --profile profiling --features profiling
+    #RUSTFLAGS=-g cargo build --locked --profile profiling --features profiling
+    RUSTFLAGS="--cfg tokio_unstable -C force-frame-pointers=yes" cargo build --locked --profile profiling --features profiling
     #echo "Temporarily removing kernel hardening and elevating ptrace rights until reboot"
     #echo 0 | sudo tee /proc/sys/kernel/yama/ptrace_scope
     #echo 'grant temporary access to performance events until reboot'
@@ -258,14 +260,14 @@ test *test:
     #!/usr/bin/env bash
     set -euxo pipefail
     clear
-    cargo test {{ test }}
+    cargo test --locked {{ test }}
 
 # runs the full set of tests with sqlite
 test-hiqlite *test: test-backend-stop delete-hiqlite
     #!/usr/bin/env bash
     clear
 
-    cargo build
+    cargo build --locked
     {{ test_env_vars }} ./target/debug/rauthy serve -c config-test.toml --test  &
     echo $! > {{ file_test_pid }}
 
@@ -274,7 +276,7 @@ test-hiqlite *test: test-backend-stop delete-hiqlite
       echo '>>> Waiting for test-backend to be up and running'
     done
 
-    if cargo test {{ test }}; then
+    if cargo test --locked {{ test }}; then
       echo "All SQLite tests successful"
       just test-backend-stop
     else
@@ -288,7 +290,7 @@ test-postgres test="": test-backend-stop postgres-stop postgres-rm delete-hiqlit
     #!/usr/bin/env bash
     clear
 
-    cargo build
+    cargo build --locked
     # the Hiqlite tests are disk-backed, lets check postgres in-memory to cover this as well
     {{ test_env_vars }} {{ postgres }} HQL_CACHE_STORAGE_DISK=false ./target/debug/rauthy serve -c config-test.toml --test &
     echo $! > {{ file_test_pid }}
@@ -298,7 +300,7 @@ test-postgres test="": test-backend-stop postgres-stop postgres-rm delete-hiqlit
       echo '>>> Waiting for test-backend to be up and running'
     done
 
-    if {{ postgres }} cargo test {{ test }}; then
+    if {{ postgres }} cargo test --locked {{ test }}; then
       echo "All Postgres tests successful"
       just test-backend-stop
     else
@@ -341,8 +343,8 @@ archive-ui: build-ui
     mkdir -p assets/static_html
     rm -rf assets/static_html/*
 
-    tar -czf assets/static_html/templates_html.tar.gz templates/html
-    tar -czf assets/static_html/static_v1.tar.gz static/v1
+    COPYFILE_DISABLE=1 tar -czf assets/static_html/templates_html.tar.gz templates/html
+    COPYFILE_DISABLE=1 tar -czf assets/static_html/static_v1.tar.gz static/v1
 
     git add assets/static_html/*
 
@@ -374,30 +376,36 @@ build-profiling:
     set -euxo pipefail
     clear
     echo "Building a release build with the 'profiling' profile - this will take some time ..."
-    #RUSTFLAGS=-g cargo build --profile profiling
-    RUSTFLAGS=-g {{ jemalloc_conf }} cargo build --profile profiling --features jemalloc
+    #RUSTFLAGS=-g cargo build --locked --profile profiling
+    RUSTFLAGS=-g {{ jemalloc_conf }} cargo build --locked --profile profiling --features jemalloc
     echo "You can analyze the application via: heaptrack ./target/profiling/rauthy"
 
 # build wasm frontend modules
 build-wasm:
     #!/usr/bin/env bash
+    set -euxo pipefail
 
     cd src/wasm-modules
     rm -rf ../../frontend/src/wasm/*
 
-    wasm-pack build -d ../../frontend/src/wasm/spow --no-pack --out-name spow --features spow
-    wasm-pack build -d ../../frontend/src/wasm/md --no-pack --out-name md --features md
+    wasm-pack build --mode no-install -d ../../frontend/src/wasm/spow --no-pack --out-name spow . --features spow --locked
+    wasm-pack build --mode no-install -d ../../frontend/src/wasm/md --no-pack --out-name md . --features md --locked
 
 # Build the final container image.
-#build image="ghcr.io/sebadob/rauthy" push="push": build-wasm build-ui fido-mds-prep
-build image="ghcr.io/sebadob/rauthy" push="push": build-wasm build-ui
+build image="ghcr.io/sebadob/rauthy" push="push": build-wasm build-ui fido-mds-prep
     #!/usr/bin/env bash
     set -euxo pipefail
 
-    # make sure base image is up to date
-    {{ docker }} pull gcr.io/distroless/cc-debian12:nonroot
+    # fetch the reviewed base image pinned in Dockerfile
+    {{ docker }} pull {{ distroless_image }}
 
     mkdir -p out/empty
+
+    # Build the reviewed, patched builder locally; execute its immutable image ID.
+    BUILDER_ID_FILE=$(mktemp)
+    trap 'rm -f "$BUILDER_ID_FILE"' EXIT
+    {{ docker }} build --platform linux/amd64 --iidfile "$BUILDER_ID_FILE" -f Dockerfile_builder .
+    BUILDER_ID=$(cat "$BUILDER_ID_FILE")
 
     # IMPORTANT: We can't use `cross` for the x86 build because it uses a way too old
     # `gcc`which has a known `memcmp` issue:
@@ -408,8 +416,8 @@ build image="ghcr.io/sebadob/rauthy" push="push": build-wasm build-ui
         -v {{ invocation_directory() }}/:/work/ \
         -w /work \
         {{ map_docker_user }} \
-        {{ builder_image }}:{{ builder_tag_date }} \
-        cargo build --release --target x86_64-unknown-linux-gnu
+        "$BUILDER_ID" \
+        cargo build --locked --release --target x86_64-unknown-linux-gnu
     cp target/x86_64-unknown-linux-gnu/release/rauthy out/rauthy_amd64
 
     # TODO here is potential to unify both images into a `dockerx` build which could
@@ -422,8 +430,8 @@ build image="ghcr.io/sebadob/rauthy" push="push": build-wasm build-ui
         -w /work \
         -e JEMALLOC_SYS_WITH_LG_PAGE=16 \
         {{ map_docker_user }} \
-        {{ builder_image }}:{{ builder_tag_date }} \
-        cargo build --release --target aarch64-unknown-linux-gnu
+        "$BUILDER_ID" \
+        cargo build --locked --release --target aarch64-unknown-linux-gnu
     cp target/aarch64-unknown-linux-gnu/release/rauthy out/rauthy_arm64
 
     NOW=$(date --rfc-3339=seconds)
@@ -486,7 +494,7 @@ is-clean:
     npm run check
     cd ..
 
-    cargo clippy -- -D warnings
+    cargo clippy --locked -- -D warnings
     cargo fmt --check
 
     # make sure everything has been committed

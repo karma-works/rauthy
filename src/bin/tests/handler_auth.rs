@@ -7,7 +7,6 @@ use crate::common::{
 use actix_web::{App, HttpResponse, HttpServer, http, web};
 use chrono::Utc;
 use ed25519_compact::Noise;
-use josekit::jwk;
 use pretty_assertions::assert_eq;
 use rauthy_api_types::clients::{ClientResponse, NewClientRequest, UpdateClientRequest};
 use rauthy_api_types::oidc::{
@@ -467,22 +466,28 @@ async fn test_authorization_code_flow() -> Result<(), Box<dyn Error>> {
     let id_token = ts.id_token.unwrap();
     println!("id_token: {}", id_token);
     // decode header to get the kid
-    let header = josekit::jwt::decode_header(id_token.clone())?;
+    let header: serde_json::Value = serde_json::from_slice(
+        &base64_url_no_pad_decode(id_token.split('.').next().unwrap())
+            .expect("valid ID token header encoding"),
+    )?;
     let kid = header
-        .claim("kid")
+        .get("kid")
         .map(|v| v.to_string().replace('\"', ""))
         .unwrap();
 
     // an ID token uses the generic `JWT`, while an access token must use `at+jwt` (RFC 9068)
     let typ = header
-        .claim("typ")
+        .get("typ")
         .map(|v| v.to_string().replace('\"', ""))
         .expect("'typ' is not set in id token header");
     assert_eq!(typ, "JWT");
 
-    let access_header = josekit::jwt::decode_header(ts.access_token.clone())?;
+    let access_header: serde_json::Value = serde_json::from_slice(
+        &base64_url_no_pad_decode(ts.access_token.split('.').next().unwrap())
+            .expect("valid access token header encoding"),
+    )?;
     let access_typ = access_header
-        .claim("typ")
+        .get("typ")
         .map(|v| v.to_string().replace('\"', ""))
         .expect("'typ' is not set in access token header");
     assert_eq!(access_typ, "at+jwt");
@@ -491,16 +496,32 @@ async fn test_authorization_code_flow() -> Result<(), Box<dyn Error>> {
     let kid_url = format!("{}/oidc/certs/{}", backend_url, kid);
     let res = reqwest::get(&kid_url).await?;
     assert_eq!(res.status(), 200);
-    let jwk = res.json::<jwk::Jwk>().await?;
+    let jwk = res.json::<JWKSPublicKey>().await?;
     println!("{:?}", jwk);
 
     // check signature and get the payload
-    let verifier = josekit::jws::RS512.verifier_from_jwk(&jwk).unwrap();
-    let (payload, _) = josekit::jwt::decode_with_verifier(&id_token, &verifier)?;
+    // Use an independent verifier on the published JWK's unsigned integer components. The old
+    // josekit helper encoded a high-bit RSA modulus as a negative DER INTEGER, rejected by OpenSSL 4.
+    let (message, signature) = id_token.rsplit_once('.').unwrap();
+    let n = base64_url_no_pad_decode(jwk.n.as_ref().unwrap()).expect("valid RSA modulus encoding");
+    let e = base64_url_no_pad_decode(jwk.e.as_ref().unwrap()).expect("valid RSA exponent encoding");
+    assert_eq!(header["alg"], "RS512");
+    assert_eq!(
+        jwk.alg,
+        Some(rauthy_data::entity::jwk::JwkKeyPairAlg::RS512)
+    );
+    ring::signature::RsaPublicKeyComponents { n: &n, e: &e }
+        .verify(
+            &ring::signature::RSA_PKCS1_2048_8192_SHA512,
+            message.as_bytes(),
+            &base64_url_no_pad_decode(signature).expect("valid signature encoding"),
+        )
+        .expect("independent RSA verification of the server's ID token");
+    let payload = decode_claims(&id_token);
 
     // finally, check the 'nonce'
     let nonce_claim = payload
-        .claim("nonce")
+        .get("nonce")
         .map(|v| v.to_string().replace('\"', ""))
         .expect("'nonce' is not set in id token");
     assert_eq!(nonce_claim, nonce);
@@ -932,7 +953,7 @@ async fn test_dpop() -> Result<(), Box<dyn Error>> {
         kid: None,
     };
 
-    let _ = DPOP_TOKEN_ENDPOINT.set("http://localhost:8081/auth/v1/oidc/token".to_string());
+    let _ = DPOP_TOKEN_ENDPOINT.set(format!("{}/oidc/token", get_backend_url()));
     let mut claims = DPoPClaims {
         jti: "-BwC3ESc6acc2lTc".to_string(),
         htm: http::Method::POST.to_string(),

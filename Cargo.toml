@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["src/*"]
-exclude = ["rauthy-client"]
+exclude = ["rauthy-client", "vendor/h2", "vendor/atrium-common", "vendor/openssl-sys"]
 
 [workspace.package]
 version = "0.37.1"
@@ -28,6 +28,9 @@ lto = false
 strip = false
 
 [patch.crates-io]
+h2 = { path = "vendor/h2" }
+atrium-common = { path = "vendor/atrium-common" }
+openssl-sys = { path = "vendor/openssl-sys" }
 #hiqlite = { git = "https://github.com/sebadob/hiqlite.git", branch = "fix-broken-catchup-logic", package = "hiqlite" }
 #hiqlite-derive = { git = "https://github.com/sebadob/hiqlite.git", package = "hiqlite-derive" }
 #hiqlite-wal = { git = "https://github.com/sebadob/hiqlite.git", package = "hiqlite-wal" }
@@ -112,7 +115,6 @@ ring = "0.17.13"
 rio_api = "0.8.4"
 rio_turtle = "0.8.4"
 rpassword = "7.5"
-rsa = { version = "0.9.10", features = ["serde", "sha2"] }
 ruma-client = { version = "0.20", features = [
     "client-api", "reqwest-rustls-no-provider"
 ] }
@@ -163,4 +165,5 @@ webauthn-rs = { version = "0.5", features = [
 ] }
 webauthn-rs-proto = "0.5"
 webpki-roots = "1"
+x509-parser = "0.18"
 zeroize = "1.8"

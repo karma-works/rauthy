@@ -1,18 +1,14 @@
-//! Deserialization of the raw MDS JWT payload and its transform into an [`MdsDataset`].
+//! Deserialization and transformation of the authenticated MDS JWT payload.
 //!
-//! The JWT signature is deliberately not verified here. Transport security (the prep tool refuses
-//! anything but `https`) protects the download against tampering in transit, but it is not the
-//! same thing as cryptographic verification of the blob: it authenticates the server, not the
-//! payload, and it says nothing about a compromised mirror or a modified local file passed with
-//! `--source`. Verifying the blob's `x5c` chain against a pinned FIDO Alliance root would be that
-//! guarantee, and is deliberately out of scope for this dataset-only change.
+//! This private module only transforms an already authenticated payload. Production callers must
+//! first verify the BLOB, signing chain and revocation information in [`super::verified`].
 
-use crate::fido_mds::dataset::{MdsCert, MdsDataset};
+use crate::fido_mds::dataset::MdsCert;
 use crate::fido_mds::masks::{
     AttachmentHintMask, AttestationTypeMask, KeyProtectionMask, MdsCertLevel,
 };
 use crate::fido_mds::mds_entry::MdsEntry;
-use rauthy_common::utils::{base64_decode, base64_url_no_pad_decode};
+use rauthy_common::utils::base64_decode;
 use rauthy_error::{ErrorResponse, ErrorResponseType};
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -78,20 +74,23 @@ fn next_update_ts(date: &str) -> Result<i64, ErrorResponse> {
         })
 }
 
-pub(super) fn transform(jwt: &str) -> Result<MdsDataset, ErrorResponse> {
-    let payload_b64 = jwt.split('.').nth(1).ok_or_else(|| {
-        ErrorResponse::new(ErrorResponseType::BadRequest, "FIDO MDS blob is not a JWT")
-    })?;
-    let payload = base64_url_no_pad_decode(payload_b64)?;
-    let blob: RawBlob = serde_json::from_slice(&payload).map_err(|err| {
+#[derive(Debug, PartialEq)]
+pub(super) struct ParsedDataset {
+    pub blob_no: i64,
+    pub next_update_ts: i64,
+    pub entries: Vec<MdsEntry>,
+    pub certs: Vec<MdsCert>,
+}
+
+pub(super) fn transform(payload: &[u8]) -> Result<ParsedDataset, ErrorResponse> {
+    let blob: RawBlob = serde_json::from_slice(payload).map_err(|err| {
         ErrorResponse::new(
             ErrorResponseType::BadRequest,
             format!("Error parsing FIDO MDS payload: {err}"),
         )
     })?;
 
-    // deduplicate certs across all entries, keyed by their DER hash; BTreeMap keeps the output
-    // deterministic so a regeneration from the same blob produces a byte-identical asset
+    // Deduplicate root certificates by DER hash and keep the transformed output deterministic.
     let mut cert_map: BTreeMap<[u8; 32], Vec<u8>> = BTreeMap::new();
     let mut entries = Vec::with_capacity(blob.entries.len());
 
@@ -155,7 +154,7 @@ pub(super) fn transform(jwt: &str) -> Result<MdsDataset, ErrorResponse> {
         .map(|(hash, cert_der)| MdsCert { hash, cert_der })
         .collect();
 
-    Ok(MdsDataset {
+    Ok(ParsedDataset {
         blob_no: blob.no,
         next_update_ts: next_update_ts(&blob.next_update)?,
         entries,

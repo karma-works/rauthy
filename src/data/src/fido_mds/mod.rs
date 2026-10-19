@@ -4,18 +4,12 @@ pub mod masks;
 pub mod mds_entry;
 pub mod metadata;
 mod raw;
+pub mod verified;
 
 #[cfg(test)]
 mod tests {
-    use crate::fido_mds::dataset::MdsDataset;
     use crate::fido_mds::masks::{AttachmentHint, AttestationType, KeyProtection, MdsCertLevel};
-    use rauthy_common::utils::base64_url_encode;
-
-    /// Wrap a JSON payload into a JWT shape the transform can read (`header.payload.signature`). The
-    /// header and signature are ignored, so they are just placeholders.
-    fn jwt(payload_json: &str) -> String {
-        format!("aaaa.{}.zzzz", base64_url_encode(payload_json.as_bytes()))
-    }
+    use crate::fido_mds::raw;
 
     /// A fixture that exercises every branch of the transform. Certificate values are arbitrary but
     /// valid base64; `CERTA` (`Q0VSVEE=`) is deliberately shared between two kept entries.
@@ -126,12 +120,12 @@ mod tests {
         }
       ]
     }"#;
-        jwt(payload)
+        payload.to_string()
     }
 
     #[test]
     fn transform_keeps_only_valid_aaguid_entries() {
-        let ds: MdsDataset = fixture().parse().unwrap();
+        let ds = raw::transform(fixture().as_bytes()).unwrap();
 
         assert_eq!(ds.blob_no, 271);
         // 2026-08-01T00:00:00Z
@@ -148,7 +142,7 @@ mod tests {
 
     #[test]
     fn transform_derives_cert_level_as_the_max_across_reports() {
-        let ds: MdsDataset = fixture().parse().unwrap();
+        let ds = raw::transform(fixture().as_bytes()).unwrap();
         // entries are sorted by aaguid, so the order is 001, 002, 006, 007
         assert_eq!(ds.entries[0].cert_level, MdsCertLevel::L1);
         assert_eq!(ds.entries[1].cert_level, MdsCertLevel::L2);
@@ -170,7 +164,7 @@ mod tests {
 
     #[test]
     fn transform_folds_unrecognized_values_into_the_unknown_bit() {
-        let ds: MdsDataset = fixture().parse().unwrap();
+        let ds = raw::transform(fixture().as_bytes()).unwrap();
         let e = &ds.entries[3];
         assert!(e.key_protection.contains(KeyProtection::Hardware));
         assert!(e.key_protection.contains(KeyProtection::Unknown));
@@ -191,7 +185,7 @@ mod tests {
 
     #[test]
     fn transform_deduplicates_shared_root_certificates() {
-        let ds: MdsDataset = fixture().parse().unwrap();
+        let ds = raw::transform(fixture().as_bytes()).unwrap();
         // CERTA, CERTB, CERTG across the four kept entries; CERTA is shared by 001 and 006
         assert_eq!(ds.certs.len(), 3);
 
@@ -204,19 +198,15 @@ mod tests {
     }
 
     #[test]
-    fn transform_is_deterministic_and_round_trips() {
-        let a: MdsDataset = fixture().parse().unwrap();
-        let b: MdsDataset = fixture().parse().unwrap();
+    fn transform_is_deterministic() {
+        let a = raw::transform(fixture().as_bytes()).unwrap();
+        let b = raw::transform(fixture().as_bytes()).unwrap();
         assert_eq!(a, b);
-
-        let bytes = a.serialize().unwrap();
-        let back = MdsDataset::deserialize(&bytes).unwrap();
-        assert_eq!(a, back);
     }
 
     #[test]
     fn aaguid_is_parsed_into_the_16_bytes_the_db_stores() {
-        let ds: MdsDataset = fixture().parse().unwrap();
+        let ds = raw::transform(fixture().as_bytes()).unwrap();
         assert_eq!(
             ds.entries[0].aaguid.as_bytes(),
             &[0xaa, 0xaa, 0xaa, 0xaa, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]

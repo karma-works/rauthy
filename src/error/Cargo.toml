@@ -23,7 +23,6 @@ reqwest = { workspace = true }
 ring = { workspace = true }
 rio_turtle = { workspace = true }
 rusqlite = { workspace = true }
-rsa = { workspace = true }
 s3-simple = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
