@@ -149,6 +149,12 @@ impl HtmlCached {
                         HtmlTemplate::OtpLength(RauthyConfig::get().vars.otp.length),
                         HtmlTemplate::IsOtpEnabled(RauthyConfig::get().vars.otp.enable),
                         HtmlTemplate::PasskeyRegType,
+                        HtmlTemplate::PasskeyAccountsNoPassword(
+                            RauthyConfig::get()
+                                .vars
+                                .webauthn
+                                .passkey_accounts_no_password,
+                        ),
                     ],
                 )
             }

@@ -55,6 +55,8 @@
     let testSuccess = $state(false);
 
     let showModal = $state(false);
+    // `true` while the modal asks for an existing passkey before a new one can be registered
+    let regAfterAuth = $state(false);
     let closeModal: undefined | (() => void) = $state();
 
     let passkeys: PasskeyResponse[] = $state([]);
@@ -167,7 +169,7 @@
 
         let tokenId = mfaModToken?.id;
         if (!tokenId) {
-            showModal = true;
+            openAuthModal(true);
             return;
         }
 
@@ -200,7 +202,7 @@
 
     async function handleDelete(name: string) {
         if (!mfaModToken) {
-            showModal = true;
+            openAuthModal(false);
             return;
         }
 
@@ -216,11 +218,16 @@
         }
     }
 
+    function openAuthModal(forRegistration: boolean) {
+        regAfterAuth = forRegistration;
+        showModal = true;
+    }
+
     function onRegisterClick() {
         if (mfaModToken) {
             showRegInput = true;
         } else {
-            showModal = true;
+            openAuthModal(true);
         }
     }
 
@@ -253,7 +260,7 @@
 
         let tokenId = mfaModToken?.id;
         if (!tokenId) {
-            showModal = true;
+            openAuthModal(false);
             return;
         }
         let res = await postOtp(userId, otpKind, otpName, tokenId);
@@ -279,7 +286,7 @@
 
         let tokenId = mfaModToken?.id;
         if (!tokenId) {
-            showModal = true;
+            openAuthModal(false);
             showOtpInput = false;
             return;
         }
@@ -311,7 +318,7 @@
 
         let tokenId = mfaModToken?.id;
         if (!tokenId) {
-            showModal = true;
+            openAuthModal(false);
             return;
         }
 
@@ -346,6 +353,11 @@
         if (res.body) {
             mfaModToken = res.body;
             closeModal?.();
+            if (regAfterAuth) {
+                // the user wanted to register a new passkey -> continue right there
+                regAfterAuth = false;
+                showRegInput = true;
+            }
 
             if (interval) {
                 clearInterval(interval);
@@ -362,7 +374,7 @@
 
     function mfaTokenRefresh() {
         mfaModToken = undefined;
-        showModal = true;
+        openAuthModal(false);
     }
 
     async function onMfaTokenWebauthnSubmit() {
@@ -381,6 +393,7 @@
         console.log('mfa err', error);
         err = true;
         msg = error;
+        regAfterAuth = false;
         mfaPurpose = undefined;
         mfaKind = undefined;
         setTimeout(() => {
@@ -492,6 +505,9 @@
                 </Form>
             </div>
         {:else}
+            {#if passkeys.length === 1 && user.account_type === 'passkey'}
+                <p class="hint">{t.mfa.webauthn.onlyOneHint}</p>
+            {/if}
             <div class="regNewBtn">
                 <Button level={passkeys.length === 0 ? 1 : 2} onclick={onRegisterClick}>
                     {t.mfa.webauthn.registerNew}
@@ -586,6 +602,11 @@
 
 <Modal bind:showModal bind:closeModal>
     {#if user.webauthn_user_id}
+        {#if regAfterAuth}
+            <p style:max-width="20rem">
+                {t.mfa.webauthn.addFlowHint}
+            </p>
+        {/if}
         <p style:max-width="20rem">
             {t.mfa.reAuthenticatePasskey}
         </p>
@@ -716,6 +737,13 @@
         display: flex;
         align-items: center;
         gap: 0.5rem;
+    }
+
+    .hint {
+        max-width: 25rem;
+        padding: 0.5rem 0.75rem;
+        border-left: 3px solid hsl(var(--action));
+        background-color: hsla(var(--bg-high) / 0.25);
     }
 
     .regNewBtn {

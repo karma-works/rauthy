@@ -257,6 +257,10 @@ export const I18nNl: I18n = {
                 niet andersom.`,
             p3: 'Voor meer informatie, zie',
             registerNew: 'Nieuwe sleutel registreren',
+            addFlowHint:
+                'Eerst bevestig je met een bestaande passkey, daarna maak je de nieuwe aan.',
+            onlyOneHint:
+                'Registreer een tweede passkey, bijvoorbeeld op je telefoon. Valt een apparaat uit, dan kun je nog steeds inloggen.',
             docLinkText: 'de documentatie over passkeys',
             unsupportedText:
                 'Your browser does not support Webauthn credentials and must be updated.',

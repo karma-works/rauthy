@@ -209,6 +209,8 @@ export interface I18n {
             p2: string;
             p3: string;
             registerNew: string;
+            addFlowHint: string;
+            onlyOneHint: string;
             docLinkText: string;
             unsupportedText: string;
         };

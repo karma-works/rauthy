@@ -253,6 +253,10 @@ export const I18nNb: I18n = {
                 måte. Dette gjelder imidlertid ikke omvendt.`,
             p3: 'For more information, see',
             registerNew: 'Registrer ny nøkkel',
+            addFlowHint:
+                'Først bekrefter du med en eksisterende passkey, deretter oppretter du den nye.',
+            onlyOneHint:
+                'Registrer en ekstra passkey, for eksempel på telefonen din. Hvis en enhet svikter, kan du fortsatt logge inn.',
             docLinkText: 'the documentation about passkeys',
             unsupportedText:
                 'Your browser does not support Webauthn credentials and must be updated.',

@@ -3138,6 +3138,17 @@ renew_exp = '90d'
 # overwritten by: WEBAUTHN_NEW_USER_PASSKEY_ONLY
 #new_user_passkey_only = false
 
+# If set to `true`, an account that only has a passkey and no
+# password cannot add a password to itself on the account page.
+# The "Password" tab is hidden for such accounts, and setting a
+# password via the self-service API is rejected by the backend.
+# Accounts that have a password are not affected, and an admin
+# can still set a password manually.
+#
+# default: false
+# overwritten by: WEBAUTHN_PASSKEY_ACCOUNTS_NO_PASSWORD
+#passkey_accounts_no_password = false
+
 # When you want to migrate an existing deployment over to enforced
 # attestation, you usually have a chicken-and-egg problem: You
 # have users that already use Passkeys. Device attestation only

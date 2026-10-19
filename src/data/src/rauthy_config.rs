@@ -1272,6 +1272,7 @@ Your account has not been compromised and no data was leaked."#.into()),
                 force_passkey_attachment: None,
                 passkey_reg_type: vec![PasskeyRegType::Default, PasskeyRegType::ResidentKey],
                 new_user_passkey_only: false,
+                passkey_accounts_no_password: false,
             },
             atproto: VarsAtproto { enable: false },
         }
@@ -3933,6 +3934,14 @@ impl Vars {
         ) {
             self.webauthn.new_user_passkey_only = v;
         }
+        if let Some(v) = t_bool(
+            &mut table,
+            "webauthn",
+            "passkey_accounts_no_password",
+            "WEBAUTHN_PASSKEY_ACCOUNTS_NO_PASSWORD",
+        ) {
+            self.webauthn.passkey_accounts_no_password = v;
+        }
 
         check_table_empty(table, "webauthn");
     }
@@ -4651,6 +4660,8 @@ pub struct VarsWebauthn {
     /// If `true`, the account setup from a `new_user` magic link only offers a passkey and
     /// setting a password through it is rejected.
     pub new_user_passkey_only: bool,
+    /// If `true`, a passkey-only account cannot add a password to itself on the account page.
+    pub passkey_accounts_no_password: bool,
 }
 
 impl VarsWebauthn {

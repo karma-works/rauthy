@@ -66,6 +66,17 @@ deleted all of their Passkeys. Accounts that already have a password are not aff
 new_user_passkey_only = true
 ```
 
+A passkey-only account can still add a password to itself on the account page. To keep such
+accounts passkey-only, set `webauthn.passkey_accounts_no_password = true`. The "Password" tab is
+then hidden for them, and the backend rejects a password they try to set themselves. An admin can
+still set a password manually.
+
+```toml
+[webauthn]
+new_user_passkey_only = true
+passkey_accounts_no_password = true
+```
+
 ### Resetting the Sign-In of a User
 
 When a user lost all Passkeys, an admin can reset the sign-in via the API:

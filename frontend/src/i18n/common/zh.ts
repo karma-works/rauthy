@@ -238,6 +238,9 @@ export const I18nZh: I18n = {
                 但是，反之则不行。`,
             p3: '欲了解更多信息，请参见',
             registerNew: '注册新密钥',
+            addFlowHint: '首先使用现有的通行密钥进行确认，然后创建新的通行密钥。',
+            onlyOneHint:
+                '请再注册一个通行密钥，例如在您的手机上。即使一台设备无法使用，您仍然可以登录。',
             docLinkText: '关于通行密钥的文档',
             unsupportedText:
                 'Your browser does not support Webauthn credentials and must be updated.',

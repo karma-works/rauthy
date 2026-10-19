@@ -61,6 +61,26 @@ and an admin setting a password manually are not affected.
 new_user_passkey_only = false
 ```
 
+A second, optional `webauthn.passkey_accounts_no_password`
+(`WEBAUTHN_PASSKEY_ACCOUNTS_NO_PASSWORD`) keeps passkey-only accounts that way: the "Password" tab
+on the account page is hidden for them, and setting a password on their own is rejected by the
+backend. Accounts with a password and an admin setting a password manually are not affected.
+
+```toml
+[webauthn]
+# default: false
+# overwritten by: WEBAUTHN_PASSKEY_ACCOUNTS_NO_PASSWORD
+passkey_accounts_no_password = false
+```
+
+#### Account Page Guidance for Passkeys
+
+`/auth/v1/account?v=mfa` opens the Passkey tab directly, also on small screens, so an app can
+link to it for managing Passkeys. `?v=devices` now works on small screens as well. A
+passkey-only account with a single Passkey sees a hint to register a second one. When adding a
+Passkey, the confirmation dialog explains that an existing Passkey is checked first, and the
+registration form opens right after that confirmation.
+
 #### Admin API: Resend the Account Setup E-Mail
 
 `POST /auth/v1/users/{id}/setup_mail` sends the account setup E-Mail for an existing user again,

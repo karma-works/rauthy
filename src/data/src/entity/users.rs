@@ -77,6 +77,14 @@ pub enum AccountType {
     FederatedPasskey,
 }
 
+impl AccountType {
+    /// `false` if the user must not set a password on its own, which is the case for
+    /// passkey-only accounts with `webauthn.passkey_accounts_no_password`.
+    pub fn may_add_password_self(&self, passkey_accounts_no_password: bool) -> bool {
+        !(passkey_accounts_no_password && *self == Self::Passkey)
+    }
+}
+
 impl From<AccountType> for UserAccountTypeResponse {
     fn from(value: AccountType) -> Self {
         match value {
@@ -1357,6 +1365,18 @@ LIMIT $2"#;
 
         let mut password = None;
         if let Some(pwd_new) = upd_user.password_new {
+            if !user.account_type().may_add_password_self(
+                RauthyConfig::get()
+                    .vars
+                    .webauthn
+                    .passkey_accounts_no_password,
+            ) {
+                return Err(ErrorResponse::new(
+                    ErrorResponseType::BadRequest,
+                    "A passkey-only account cannot set a password",
+                ));
+            }
+
             if let Some(pwd_curr) = upd_user.password_current {
                 user.validate_password(pwd_curr).await?;
             } else if let Some(mfa_code) = upd_user.mfa_code {
@@ -2172,6 +2192,32 @@ mod tests {
     use crate::entity::sessions::{Session, SessionState};
     use pretty_assertions::assert_eq;
     use std::ops::Sub;
+
+    #[test]
+    fn test_may_add_password_self() {
+        let all = [
+            AccountType::New,
+            AccountType::Password,
+            AccountType::Passkey,
+            AccountType::Federated,
+            AccountType::FederatedPassword,
+            AccountType::FederatedPasskey,
+        ];
+
+        // the upstream default never restricts anything
+        for typ in &all {
+            assert!(typ.may_add_password_self(false), "{typ:?}");
+        }
+
+        // only a passkey-only account is restricted
+        for typ in &all {
+            assert_eq!(
+                typ.may_add_password_self(true),
+                *typ != AccountType::Passkey,
+                "{typ:?}"
+            );
+        }
+    }
 
     #[test]
     fn test_session_impl() {

@@ -266,6 +266,10 @@ export const I18nDe: I18n = {
                 anderen Geräten gleichermaßen. Dies gilt jedoch nicht andersherum.`,
             p3: 'Für weitere Informationen, siehe',
             registerNew: 'Neuen Passkey Registrieren',
+            addFlowHint:
+                'Zuerst bestätigen Sie mit Ihrem vorhandenen Passkey, dann legen Sie den neuen an.',
+            onlyOneHint:
+                'Richten Sie einen zweiten Passkey ein, z. B. auf Ihrem Smartphone. Fällt ein Gerät aus, kommen Sie so weiter an Ihr Konto.',
             docLinkText: 'die Dokumentation zu Passkeys',
             unsupportedText: 'Dieser Browser ist zu alt und unterstützt kein Webauthn.',
         },
