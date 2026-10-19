@@ -1,4 +1,6 @@
-FROM rust:1.95.0-bookworm
+FROM node:26.11.1-bookworm@sha256:f1233c415b41ffcf237c717b3dea92e9d4ea006e0e4c71edcb790605d74f5404 AS node
+
+FROM rust:1.95.0-bookworm@sha256:6258907abe69656e41cd992e0b705cdcfabcbbe3db374f92ed2d47121282d4a1
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -6,27 +8,39 @@ ENV CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=x86_64-linux-gnu-gcc
 ENV CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
 ENV PKG_CONFIG_ALLOW_CROSS=1
 
-COPY assets/node_setup_builder/node_setup_22.sh .
+COPY assets/build_tools /opt/rauthy-build-tools
+
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
+COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
 
 RUN <<EOF
 #!/bin/bash
-set -e
+set -euo pipefail
+export RAUTHY_BUILDER_CONTAINER=1
 
-chmod +x node_setup_22.sh
-./node_setup_22.sh
-rm node_setup_22.sh
+ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm
+ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
 
-apt-get update
+# Preserve signature verification while fixing the package indexes to dated snapshots.
+rm -f /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources
+cp /opt/rauthy-build-tools/debian.sources /etc/apt/sources.list.d/debian.sources
+
+apt-get update --error-on=any
+apt-get upgrade -y --no-install-recommends
 apt-get install -y build-essential clang gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
-  libpam0g-dev librust-libudev-sys-dev nodejs
+  libpam0g-dev librust-libudev-sys-dev python3 patch
 apt-get clean
+rm -rf /var/lib/apt/lists/*
+
+python3 /opt/rauthy-build-tools/builder_openssl.py
+python3 /opt/rauthy-build-tools/builder_cargo.py
 
 rustup target add aarch64-unknown-linux-gnu
 rustup target add x86_64-unknown-linux-gnu
 rustup component add clippy
 rustup component add rustfmt
 
-cargo install just wasm-pack
+python3 /opt/rauthy-build-tools/install.py just wasm-pack wasm-bindgen-cli
 
 EOF
 

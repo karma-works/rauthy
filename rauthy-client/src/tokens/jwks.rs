@@ -26,10 +26,10 @@ enum JwksMsg {
 impl JwksMsg {
     pub(crate) fn send(self) -> Result<(), RauthyError> {
         JWKS_TX
-                .get()
-                .ok_or(RauthyError::Init("JWKS_TX has not been initialized"))?
-                .send(self)
-                .map_err(|err| RauthyError::Internal(Cow::from(err.to_string())))?;
+            .get()
+            .ok_or(RauthyError::Init("JWKS_TX has not been initialized"))?
+            .send(self)
+            .map_err(|err| RauthyError::Internal(Cow::from(err.to_string())))?;
         Ok(())
     }
 }
@@ -80,7 +80,7 @@ impl JwkPublicKey {
         buf: &mut Vec<u8>,
     ) -> Result<(), RauthyError> {
         if let Some(jwks) = JWKS.get()
-                && let Some(jwk) = jwks.load().get(&kid)
+            && let Some(jwk) = jwks.load().get(&kid)
         {
             jwk.validate_token_alg(alg)?;
             jwk.validate_token_signature(token, buf)?;
@@ -94,10 +94,10 @@ impl JwkPublicKey {
             let (tx, rx) = oneshot::channel();
             JwksMsg::Update(tx).send()?;
             rx.await
-                    .map_err(|err| RauthyError::Internal(Cow::from(err.to_string())))?;
+                .map_err(|err| RauthyError::Internal(Cow::from(err.to_string())))?;
 
             if let Some(jwks) = JWKS.get()
-                    && let Some(jwk) = jwks.load().get(&kid)
+                && let Some(jwk) = jwks.load().get(&kid)
             {
                 jwk.validate_token_alg(alg)?;
                 jwk.validate_token_signature(token, buf)?;
@@ -113,19 +113,19 @@ impl JwkPublicKey {
 
     #[cfg(feature = "rsa")]
     #[inline(always)]
-    fn e(&self) -> Result<rsa::BigUint, RauthyError> {
+    fn e(&self) -> Result<&[u8], RauthyError> {
         match &self.e_bytes {
             None => Err(RauthyError::JWK("Missing 'e' in JWK".into())),
-            Some(bytes) => Ok(rsa::BigUint::from_bytes_be(bytes)),
+            Some(bytes) => Ok(bytes),
         }
     }
 
     #[cfg(feature = "rsa")]
     #[inline(always)]
-    fn n(&self) -> Result<rsa::BigUint, RauthyError> {
+    fn n(&self) -> Result<&[u8], RauthyError> {
         match &self.n_bytes {
             None => Err(RauthyError::JWK("Missing 'n' in JWK".into())),
-            Some(bytes) => Ok(rsa::BigUint::from_bytes_be(bytes)),
+            Some(bytes) => Ok(bytes),
         }
     }
 
@@ -142,7 +142,9 @@ impl JwkPublicKey {
         if self.alg == alg {
             Ok(())
         } else {
-            Err(RauthyError::JWK(format!("Mismatch in 'alg' for JWK with kid {}", self.kid).into()))
+            Err(RauthyError::JWK(
+                format!("Mismatch in 'alg' for JWK with kid {}", self.kid).into(),
+            ))
         }
     }
 
@@ -153,66 +155,28 @@ impl JwkPublicKey {
         buf: &mut Vec<u8>,
     ) -> Result<(), RauthyError> {
         let (message, sig) = token
-                .rsplit_once('.')
-                .ok_or(RauthyError::MalformedJwt("Malformed token"))?;
+            .rsplit_once('.')
+            .ok_or(RauthyError::MalformedJwt("Malformed token"))?;
 
         buf.clear();
         base64_url_no_pad_decode_buf(sig, buf)?;
 
         match self.alg {
-            JwkKeyPairAlg::RS256 => {
+            JwkKeyPairAlg::RS256 | JwkKeyPairAlg::RS384 | JwkKeyPairAlg::RS512 => {
                 #[cfg(feature = "rsa")]
                 {
-                    let hash = hmac_sha256::Hash::hash(message.as_bytes());
-                    let rsa_pk = rsa::RsaPublicKey::new(self.n()?, self.e()?)?;
-                    if rsa_pk
-                            .verify(
-                                rsa::Pkcs1v15Sign::new::<sha2::Sha256>(),
-                                hash.as_slice(),
-                                buf,
-                            )
-                            .is_ok()
-                    {
-                        return Ok(());
-                    }
-                }
-                #[cfg(not(feature = "rsa"))]
-                error!("Cannot validate RSA tokens without the `rsa` feature");
-            }
-
-            JwkKeyPairAlg::RS384 => {
-                #[cfg(feature = "rsa")]
-                {
-                    let hash = hmac_sha512::sha384::Hash::hash(message.as_bytes());
-                    let rsa_pk = rsa::RsaPublicKey::new(self.n()?, self.e()?)?;
-                    if rsa_pk
-                            .verify(
-                                rsa::Pkcs1v15Sign::new::<sha2::Sha384>(),
-                                hash.as_slice(),
-                                buf,
-                            )
-                            .is_ok()
-                    {
-                        return Ok(());
-                    }
-                }
-                #[cfg(not(feature = "rsa"))]
-                error!("Cannot validate RSA tokens without the `rsa` feature");
-            }
-
-            JwkKeyPairAlg::RS512 => {
-                #[cfg(feature = "rsa")]
-                {
-                    let hash = hmac_sha512::Hash::hash(message.as_bytes());
-                    let rsa_pk = rsa::RsaPublicKey::new(self.n()?, self.e()?)?;
-                    if rsa_pk
-                            .verify(
-                                rsa::Pkcs1v15Sign::new::<sha2::Sha512>(),
-                                hash.as_slice(),
-                                buf,
-                            )
-                            .is_ok()
-                    {
+                    use ring::signature;
+                    let algorithm = match self.alg {
+                        JwkKeyPairAlg::RS256 => &signature::RSA_PKCS1_2048_8192_SHA256,
+                        JwkKeyPairAlg::RS384 => &signature::RSA_PKCS1_2048_8192_SHA384,
+                        JwkKeyPairAlg::RS512 => &signature::RSA_PKCS1_2048_8192_SHA512,
+                        _ => unreachable!(),
+                    };
+                    let rsa_pk = signature::RsaPublicKeyComponents {
+                        n: self.n()?,
+                        e: self.e()?,
+                    };
+                    if rsa_pk.verify(algorithm, message.as_bytes(), buf).is_ok() {
                         return Ok(());
                     }
                 }
@@ -364,5 +328,101 @@ impl JwksCerts {
                 }
             }
         }
+    }
+}
+
+#[cfg(all(test, feature = "rsa"))]
+mod tests {
+    use super::*;
+    use crate::base64_url_encode;
+
+    #[derive(Deserialize)]
+    struct RsaFixture {
+        alg: JwkKeyPairAlg,
+        n: String,
+        e: String,
+        message: String,
+        signature: String,
+    }
+
+    fn fixtures() -> Vec<RsaFixture> {
+        // OpenSSL-generated 2048- and 4096-bit public keys and PKCS#1 v1.5 signatures.
+        // The private keys are not retained; this checks interoperability independently of ring.
+        serde_json::from_str(include_str!("testdata/rsa_signatures.json")).unwrap()
+    }
+
+    fn public_key(fixture: &RsaFixture) -> JwkPublicKey {
+        JwkPublicKey {
+            kty: JwkKeyPairType::RSA,
+            alg: fixture.alg.clone(),
+            kid: "rsa-test".to_string(),
+            crv: None,
+            n: Some(fixture.n.clone()),
+            n_bytes: Some(base64_url_no_pad_decode(&fixture.n).unwrap()),
+            e: Some(fixture.e.clone()),
+            e_bytes: Some(base64_url_no_pad_decode(&fixture.e).unwrap()),
+            x: None,
+            x_bytes: None,
+        }
+    }
+
+    #[test]
+    fn verifies_all_rsa_algorithms_and_rejects_tampering() {
+        let mut buf = Vec::new();
+        for fixture in fixtures() {
+            let mut key = public_key(&fixture);
+            let token = format!("{}.{}", fixture.message, fixture.signature);
+            key.validate_token_signature(&token, &mut buf).unwrap();
+
+            let tampered_message = format!("{}x.{}", fixture.message, fixture.signature);
+            assert!(
+                key.validate_token_signature(&tampered_message, &mut buf)
+                    .is_err()
+            );
+
+            let mut signature = base64_url_no_pad_decode(&fixture.signature).unwrap();
+            signature[0] ^= 1;
+            let tampered_signature =
+                format!("{}.{}", fixture.message, base64_url_encode(&signature));
+            assert!(
+                key.validate_token_signature(&tampered_signature, &mut buf)
+                    .is_err()
+            );
+
+            key.alg = match fixture.alg {
+                JwkKeyPairAlg::RS256 => JwkKeyPairAlg::RS512,
+                _ => JwkKeyPairAlg::RS256,
+            };
+            assert!(key.validate_token_signature(&token, &mut buf).is_err());
+        }
+    }
+
+    #[test]
+    fn rejects_missing_or_invalid_rsa_components() {
+        let fixture = fixtures().remove(0);
+        let token = format!("{}.{}", fixture.message, fixture.signature);
+        let mut buf = Vec::new();
+        let mut key = public_key(&fixture);
+        key.n_bytes = None;
+        assert!(matches!(
+            key.validate_token_signature(&token, &mut buf),
+            Err(RauthyError::JWK(_))
+        ));
+        key = public_key(&fixture);
+        key.e_bytes = None;
+        assert!(matches!(
+            key.validate_token_signature(&token, &mut buf),
+            Err(RauthyError::JWK(_))
+        ));
+        key = public_key(&fixture);
+        key.n_bytes = Some(vec![0; 256]);
+        assert!(key.validate_token_signature(&token, &mut buf).is_err());
+        key = public_key(&fixture);
+        key.e_bytes = Some(vec![1]);
+        assert!(key.validate_token_signature(&token, &mut buf).is_err());
+        assert!(
+            key.validate_token_signature("missing-separators", &mut buf)
+                .is_err()
+        );
     }
 }

@@ -1,0 +1,125 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -13,7 +13,7 @@
+ edition = "2024"
+ rust-version = "1.93"
+ name = "cargo"
+-version = "0.96.0"
++version = "0.96.0-rauthy.1"
+ build = "build.rs"
+ autolib = false
+ autobins = false
+@@ -122,10 +122,11 @@
+ default-features = false
+ 
+ [dependencies.git2]
+-version = "0.20.4"
++version = "0.21"
++features = ["cred"]
+ 
+ [dependencies.git2-curl]
+-version = "0.21.0"
++version = "0.22"
+ 
+ [dependencies.gix]
+ version = "0.79.0"
+@@ -160,7 +161,8 @@
+ version = "0.4.25"
+ 
+ [dependencies.im-rc]
+-version = "15.1.0"
++version = "7.0.2"
++package = "imbl"
+ 
+ [dependencies.indexmap]
+ version = "2.12.1"
+@@ -181,7 +183,7 @@
+ version = "0.1.34"
+ 
+ [dependencies.libgit2-sys]
+-version = "0.18.3"
++version = "0.18.8"
+ 
+ [dependencies.memchr]
+ version = "2.7.6"
+--- a/src/cargo/core/resolver/context.rs
++++ b/src/cargo/core/resolver/context.rs
+@@ -18,13 +18,26 @@
+     pub age: ContextAge,
+     pub activations: Activations,
+     /// list the features that are activated for each package
+-    pub resolve_features: im_rc::HashMap<PackageId, FeaturesSet, rustc_hash::FxBuildHasher>,
++    pub resolve_features: im_rc::GenericHashMap<
++        PackageId,
++        FeaturesSet,
++        rustc_hash::FxBuildHasher,
++        im_rc::shared_ptr::RcK,
++    >,
+     /// get the package that will be linking to a native library by its links attribute
+-    pub links: im_rc::HashMap<InternedString, PackageId, rustc_hash::FxBuildHasher>,
++    pub links: im_rc::GenericHashMap<
++        InternedString,
++        PackageId,
++        rustc_hash::FxBuildHasher,
++        im_rc::shared_ptr::RcK,
++    >,
+ 
+     /// a way to look up for a package in activations what packages required it
+     /// and all of the exact deps that it fulfilled.
+-    pub parents: Graph<PackageId, im_rc::HashSet<Dependency, rustc_hash::FxBuildHasher>>,
++    pub parents: Graph<
++        PackageId,
++        im_rc::GenericHashSet<Dependency, rustc_hash::FxBuildHasher, im_rc::shared_ptr::RcK>,
++    >,
+ }
+ 
+ /// When backtracking it can be useful to know how far back to go.
+@@ -38,17 +51,21 @@
+ /// By storing this in a hash map we ensure that there is only one
+ /// semver compatible version of each crate.
+ /// This all so stores the `ContextAge`.
+-pub type Activations =
+-    im_rc::HashMap<ActivationsKey, (Summary, ContextAge), rustc_hash::FxBuildHasher>;
++pub type Activations = im_rc::GenericHashMap<
++    ActivationsKey,
++    (Summary, ContextAge),
++    rustc_hash::FxBuildHasher,
++    im_rc::shared_ptr::RcK,
++>;
+ 
+ impl ResolverContext {
+     pub fn new() -> ResolverContext {
+         ResolverContext {
+             age: 0,
+-            resolve_features: im_rc::HashMap::default(),
+-            links: im_rc::HashMap::default(),
++            resolve_features: im_rc::GenericHashMap::default(),
++            links: im_rc::GenericHashMap::default(),
+             parents: Graph::new(),
+-            activations: im_rc::HashMap::default(),
++            activations: im_rc::GenericHashMap::default(),
+         }
+     }
+ 
+--- a/src/cargo/ops/fix/mod.rs
++++ b/src/cargo/ops/fix/mod.rs
+@@ -240,7 +240,7 @@
+         repo_opts.include_ignored(false);
+         repo_opts.include_untracked(true);
+         for status in repo.statuses(Some(&mut repo_opts))?.iter() {
+-            if let Some(path) = status.path() {
++            if let Ok(path) = status.path() {
+                 match status.status() {
+                     git2::Status::CURRENT => (),
+                     git2::Status::INDEX_NEW
+--- a/src/cargo/sources/git/utils.rs
++++ b/src/cargo/sources/git/utils.rs
+@@ -412,7 +412,7 @@
+         ) -> CargoResult<()> {
+             child.init(false)?;
+ 
+-            let child_url_str = child.url().ok_or_else(|| {
++            let child_url_str = child.url()?.ok_or_else(|| {
+                 anyhow::format_err!("non-utf8 url for submodule {:?}?", child.path())
+             })?;
+ 

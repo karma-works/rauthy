@@ -1,15 +1,54 @@
 import { sveltekit } from '@sveltejs/kit/vite';
 import wasm from 'vite-plugin-wasm';
+import adapter from '@sveltejs/adapter-static';
 // import fs from 'fs';
 
 const backend = 'http://127.0.0.1:8080';
 
+/** @type {import('@sveltejs/kit/vite').Config} */
+export const svelteConfig = {
+    compilerOptions: {
+        runes: true,
+    },
+    // CAUTION: The order of the arguments here is important - paths must come before adapter
+    paths: {
+        base: '/auth/v1',
+    },
+    adapter: adapter({
+        pages: '../templates/html',
+        assets: '../static/v1',
+        precompress: true,
+        strict: true,
+    }),
+    alias: {
+        $api: 'src/api',
+        $css: 'src/css',
+        $icons: 'src/icons',
+        $lib: 'src/lib',
+        $lib5: 'src/lib',
+        $mfa: 'src/mfa',
+        $state: 'src/global_state',
+        $types: 'src/types',
+        $utils: 'src/utils',
+    },
+    csp: {
+        directives: {
+            'default-src': ['none'],
+            'connect-src': ['self'],
+            'script-src': ['self', 'wasm-unsafe-eval'],
+            'style-src': ['self', 'unsafe-inline'],
+            'img-src': ['self'],
+        },
+    },
+};
+
 /** @type {import('vite').UserConfig} */
 const config = {
+    envPrefix: 'DEV_',
     build: {
         target: 'esnext',
     },
-    plugins: [wasm(), sveltekit()],
+    plugins: [wasm(), sveltekit(svelteConfig)],
     server: {
         // If you want to run with dev TLS certificates, for instance when you use a remote host, uncomment the following
         // lines. Do not forget to adjust the `PUB_URL` in `rauthy.cfg` accordingly to allow the `redirect_uri`, for instance:

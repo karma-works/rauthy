@@ -12,7 +12,7 @@ use std::fmt;
 use std::fmt::Display;
 use webauthn_rs::prelude::Uuid;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct MdsEntry {
     pub aaguid: Uuid,
     pub description: String,
@@ -57,11 +57,11 @@ impl MdsEntrySimple {
     }
 
     pub async fn find(aaguid: &[u8]) -> Result<Self, ErrorResponse> {
+        let metadata = super::metadata::MdsMetadata::require_verified().await?;
         let uuid = Uuid::from_slice(aaguid).unwrap_or_default();
-        if let Some(slf) = DB::hql()
-            .get(Cache::Webauthn, Self::cache_idx(&uuid))
-            .await?
-        {
+        // A new BLOB cannot reuse a cached model that was withdrawn or revoked.
+        let cache_idx = format!("{}_{}", Self::cache_idx(&uuid), metadata.cache_tag());
+        if let Some(slf) = DB::hql().get(Cache::Webauthn, &cache_idx).await? {
             return Ok(slf);
         }
 
@@ -73,7 +73,7 @@ impl MdsEntrySimple {
         };
 
         DB::hql()
-            .put(Cache::Webauthn, Self::cache_idx(&uuid), &slf, Some(3600))
+            .put(Cache::Webauthn, cache_idx, &slf, Some(3600))
             .await?;
 
         Ok(slf)

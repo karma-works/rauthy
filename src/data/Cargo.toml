@@ -54,8 +54,6 @@ mime = { workspace = true }
 num_cpus = { workspace = true }
 openssl = { workspace = true }
 openssl-sys = { workspace = true }
-# 0.8 is necessary to provide a proper `thread_rng` for `rsa`
-rand_08 = { package = "rand", version = "0.8" }
 rand_core = { workspace = true }
 rcgen = { workspace = true }
 regex = { workspace = true }
@@ -65,7 +63,6 @@ rio_api = { workspace = true }
 rio_turtle = { workspace = true }
 rusqlite = { workspace = true }
 rustls = { workspace = true }
-rsa = { workspace = true }
 s3-simple = { workspace = true }
 semver = { workspace = true }
 serde = { workspace = true }
@@ -85,6 +82,7 @@ utoipa = { workspace = true }
 validator = { workspace = true }
 webauthn-rs = { workspace = true }
 webauthn-rs-proto = { workspace = true }
+x509-parser = { workspace = true }
 zeroize = { workspace = true }
 
 # Postgres -> integrate by alphabet when finished and sqlx as been finally removed
