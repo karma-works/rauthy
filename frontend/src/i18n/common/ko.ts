@@ -246,6 +246,9 @@ export const I18nKo: I18n = {
                 다른 곳에서도 작동하지만, 그 반대로는 작동되지 않습니다.`,
             p3: 'For more information, see',
             registerNew: '새 키 등록',
+            addFlowHint: '먼저 기존 패스키로 확인한 다음 새 패스키를 만듭니다.',
+            onlyOneHint:
+                '두 번째 패스키를 예를 들어 휴대폰에 등록하세요. 한 기기를 사용할 수 없게 되어도 계속 로그인할 수 있습니다.',
             docLinkText: 'the documentation about passkeys',
             unsupportedText:
                 'Your browser does not support Webauthn credentials and must be updated.',

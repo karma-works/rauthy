@@ -8,7 +8,11 @@
     import AccDevices from '$lib5/account/AccDevices.svelte';
     import { useI18n } from '$state/i18n.svelte.js';
     import type { UserResponse } from '$api/types/user.ts';
-    import { TPL_AUTH_PROVIDERS, TPL_USER_VALUES_CONFIG } from '$utils/constants';
+    import {
+        TPL_AUTH_PROVIDERS,
+        TPL_PASSKEY_ACCOUNTS_NO_PASSWORD,
+        TPL_USER_VALUES_CONFIG,
+    } from '$utils/constants';
     import Template from '$lib5/Template.svelte';
     import type { AuthProvidersTemplate } from '$api/templates/AuthProvider.ts';
     import { onMount } from 'svelte';
@@ -45,6 +49,9 @@
     let innerWidth: undefined | number = $state();
     let config: undefined | UserValuesConfig = $state();
     let providers: AuthProvidersTemplate = $state([]);
+    // `webauthn.passkey_accounts_no_password`: passkey-only accounts cannot add a password
+    let passkeyAccountsNoPassword = $state(false);
+    let showPasswordTab = $derived(!(passkeyAccountsNoPassword && user.account_type === 'passkey'));
     let authProvider = $derived.by(() => {
         if (user.account_type?.startsWith('federated')) {
             return providers.filter(p => p.id === user.auth_provider_id)[0];
@@ -62,6 +69,8 @@
     let pamUser: undefined | PamUserResponse = $state();
 
     let redirectUri = useParam('redirect_uri');
+    // `?v=mfa` or `?v=devices` opens that tab directly, e.g. from an app link to manage passkeys
+    let viewParam = useParam('v');
     let redirectUriValidated = $state('');
 
     let selected = $state(t.account.navInfo);
@@ -71,7 +80,10 @@
             tabs.push('PAM');
         }
 
-        tabs = [...tabs, t.account.navMfa, t.account.devices, t.account.navEdit, t.common.password];
+        tabs = [...tabs, t.account.navMfa, t.account.devices, t.account.navEdit];
+        if (showPasswordTab) {
+            tabs.push(t.common.password);
+        }
         if (!!webIdData) {
             tabs.push('WebID');
         }
@@ -85,14 +97,15 @@
 
     onMount(() => {
         fetchPamUser();
-
-        if (useParam('v').get() === 'devices') {
-            selected = t.account.devices;
-        }
     });
 
     $effect(() => {
-        if (viewModePhone || viewModeWideCompact) {
+        let view = viewParam.get();
+        if (view === 'mfa') {
+            selected = t.account.navMfa;
+        } else if (view === 'devices') {
+            selected = t.account.devices;
+        } else if (viewModePhone || viewModeWideCompact) {
             selected = t.account.navInfo;
         } else if (pamUser) {
             selected = 'PAM';
@@ -153,6 +166,7 @@
 
 <Template id={TPL_AUTH_PROVIDERS} bind:value={providers} />
 <Template id={TPL_USER_VALUES_CONFIG} bind:value={config} />
+<Template id={TPL_PASSKEY_ACCOUNTS_NO_PASSWORD} bind:value={passkeyAccountsNoPassword} />
 
 {#snippet header()}
     <h3>{`${user.given_name || ''} ${user.family_name || ''}`}</h3>
@@ -223,7 +237,7 @@
                     <AccPAM bind:pamUser />
                 {:else if selected === t.account.navEdit}
                     <AccEdit {config} bind:user viewModePhone />
-                {:else if selected === t.common.password}
+                {:else if selected === t.common.password && showPasswordTab}
                     <AccPassword {user} {authProvider} viewModePhone />
                 {:else if selected === t.account.navMfa}
                     <AccMFA bind:user />
@@ -264,7 +278,7 @@
                         <AccPAM bind:pamUser />
                     {:else if selected === t.account.navEdit}
                         <AccEdit {config} bind:user />
-                    {:else if selected === t.common.password}
+                    {:else if selected === t.common.password && showPasswordTab}
                         <AccPassword {user} {authProvider} />
                     {:else if selected === t.account.navMfa}
                         <AccMFA bind:user />

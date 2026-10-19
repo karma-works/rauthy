@@ -260,6 +260,10 @@ export const I18nFr: I18n = {
                 Cependant, cela ne s'applique pas dans l'autre sens.`,
             p3: `Pour plus d'informations, consultez`,
             registerNew: 'Enregistrer une nouvelle clé',
+            addFlowHint:
+                "Vous confirmez d'abord avec une clé d'accès existante, puis vous créez la nouvelle.",
+            onlyOneHint:
+                "Enregistrez une deuxième clé d'accès, par exemple sur votre téléphone. Si un appareil tombe en panne, vous pourrez toujours vous connecter.",
             docLinkText: `la documentation sur les clés d'accès`,
             unsupportedText:
                 'Your browser does not support Webauthn credentials and must be updated.',

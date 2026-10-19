@@ -255,6 +255,9 @@ export const I18nEn: I18n = {
                 apply the other way around.`,
             p3: 'For more information, see',
             registerNew: 'Register New Passkey',
+            addFlowHint: 'First you confirm with an existing passkey, then you create the new one.',
+            onlyOneHint:
+                'Register a second passkey, for example on your phone. If one device fails, you can still sign in.',
             docLinkText: 'the documentation about passkeys',
             unsupportedText:
                 'Your browser does not support Webauthn credentials and must be updated.',
