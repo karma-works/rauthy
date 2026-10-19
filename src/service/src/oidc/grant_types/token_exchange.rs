@@ -1,4 +1,4 @@
-use crate::token_set::{DpopFingerprint, TokenScopes, TokenSet};
+use crate::token_set::{AuthTime, DpopFingerprint, TokenAuthentication, TokenScopes, TokenSet};
 use actix_web::HttpRequest;
 use actix_web::http::header::{HeaderName, HeaderValue};
 use rauthy_api_types::oidc::{GrantType, TokenRequest, TokenType};
@@ -10,7 +10,7 @@ use rauthy_data::entity::users::User;
 use rauthy_data::events::event::Event;
 use rauthy_data::rauthy_config::RauthyConfig;
 use rauthy_error::{ErrorResponse, ErrorResponseType};
-use rauthy_jwt::claims::{ActClaim, JwtAccessClaims, JwtTokenType};
+use rauthy_jwt::claims::{ActClaim, JwtAccessClaims, JwtAmrValue, JwtTokenType};
 use rauthy_jwt::token::JwtToken;
 use std::str::FromStr;
 use std::time::Duration;
@@ -108,13 +108,15 @@ pub async fn grant_type_token_exchange(
     // anyway, so extracting them here costs nothing extra and saves a second 512 byte buffer.
     let mut buf = Vec::with_capacity(512);
 
-    let (subject_sub, subject_scope) = {
+    let (subject_sub, subject_scope, subject_authentication) = {
         let subject_claims =
             validate_exchange_token(subject_token, subject_token_type, "subject_token", &mut buf)
                 .await?;
+        let authentication = subject_authentication(&subject_claims);
         (
             subject_claims.common.sub.map(|s| s.to_string()),
             subject_claims.common.scope.map(|s| s.to_string()),
+            authentication,
         )
     };
 
@@ -213,6 +215,9 @@ pub async fn grant_type_token_exchange(
         TokenScopes::new(scope),
         target,
         act,
+        // The exchanged token represents the subject, so it keeps the subject's authentication.
+        // Ignored without a user.
+        subject_authentication,
     )
     .await?;
 
@@ -227,6 +232,18 @@ pub async fn grant_type_token_exchange(
     }
 
     Ok((ts, headers))
+}
+
+/// The user authentication of a validated subject token, carried forward into the exchanged
+/// token. A subject token without `amr` / `auth_time` (`client_credentials`, or a token issued by
+/// an older version) yields none, so an exchange can never add an authentication claim.
+fn subject_authentication(claims: &JwtAccessClaims<'_>) -> Option<TokenAuthentication> {
+    let auth_time = claims.auth_time?;
+    let amr = match claims.amr.as_deref()? {
+        [amr] => JwtAmrValue::from_str(amr).ok()?,
+        _ => return None,
+    };
+    Some(TokenAuthentication::given(AuthTime::given(auth_time), amr))
 }
 
 /// Validates a `subject_token` / `actor_token`. Only access tokens are accepted, and the token

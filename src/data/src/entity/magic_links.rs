@@ -65,6 +65,14 @@ impl TryFrom<&str> for MagicLinkUsage {
     }
 }
 
+impl MagicLinkUsage {
+    /// `true` if a link with this usage may only be used to register a passkey, never to set a
+    /// password, see `webauthn.new_user_passkey_only`.
+    pub fn is_passkey_only(&self, new_user_passkey_only: bool) -> bool {
+        new_user_passkey_only && matches!(self, Self::NewUser(_))
+    }
+}
+
 impl Display for MagicLinkUsage {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         // For types with a value, `$` was chosen as the separating characters since it is URL safe.
@@ -170,6 +178,20 @@ VALUES ($1, $2, $3, $4, $5, $6)"#;
         }
 
         Ok(link)
+    }
+
+    /// Deletes all links of a user that can be used to set up credentials (`password_reset` and
+    /// `new_user`), so that only a freshly sent one stays valid.
+    pub async fn delete_all_credential_links_for_user(user_id: &str) -> Result<(), ErrorResponse> {
+        let sql = "DELETE FROM magic_links WHERE user_id = $1 \
+            AND (usage LIKE 'password_reset%' OR usage LIKE 'new_user%')";
+        if is_hiqlite() {
+            DB::hql().execute(sql, params!(user_id)).await?;
+        } else {
+            DB::pg_execute(sql, &[&user_id]).await?;
+        };
+
+        Ok(())
     }
 
     pub async fn delete_all_pwd_reset_for_user(user_id: String) -> Result<(), ErrorResponse> {
@@ -378,5 +400,24 @@ mod tests {
         let s = ml.to_string();
         let ml_from = MagicLinkUsage::try_from(&s).unwrap();
         assert_eq!(ml, ml_from);
+    }
+
+    #[test]
+    fn test_magic_link_usage_passkey_only() {
+        // the upstream default never restricts anything
+        for usage in [
+            MagicLinkUsage::NewUser(None),
+            MagicLinkUsage::NewUser(Some("custom.uri.com".to_string())),
+            MagicLinkUsage::PasswordReset(None),
+            MagicLinkUsage::EmailChange("admin@localhost".to_string()),
+        ] {
+            assert!(!usage.is_passkey_only(false), "{usage}");
+        }
+
+        // only the setup of a new account is restricted to a passkey
+        assert!(MagicLinkUsage::NewUser(None).is_passkey_only(true));
+        assert!(MagicLinkUsage::NewUser(Some("custom.uri.com".to_string())).is_passkey_only(true));
+        assert!(!MagicLinkUsage::PasswordReset(None).is_passkey_only(true));
+        assert!(!MagicLinkUsage::EmailChange("admin@localhost".to_string()).is_passkey_only(true));
     }
 }

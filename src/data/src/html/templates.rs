@@ -37,6 +37,8 @@ pub struct TplPasswordReset {
     pub csrf_token: String,
     pub magic_link_id: String,
     pub needs_mfa: bool,
+    /// `true` if this link may only register a passkey, see `webauthn.new_user_passkey_only`
+    pub passkey_only: bool,
     pub password_policy: PasswordPolicyResponse,
     pub user_id: String,
 }

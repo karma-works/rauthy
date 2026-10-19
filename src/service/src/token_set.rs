@@ -93,6 +93,44 @@ impl AuthTime {
     }
 }
 
+/// The interactive authentication of the user behind a token set. It is rendered as `amr` and
+/// `auth_time` into the id token and into the access token of every user token.
+#[derive(Debug, Clone)]
+pub struct TokenAuthentication {
+    pub auth_time: AuthTime,
+    pub amr: JwtAmrValue,
+}
+
+impl TokenAuthentication {
+    /// The `amr` is always derived from the factor that has actually been verified, see
+    /// [`amr_for`].
+    #[inline]
+    pub fn new(auth_time: AuthTime, mfa_method: MfaMethod) -> Self {
+        Self {
+            auth_time,
+            amr: amr_for(mfa_method),
+        }
+    }
+
+    /// Carries the authentication of an already issued and validated access token forward,
+    /// like for the RFC 8693 token exchange.
+    #[inline]
+    pub fn given(auth_time: AuthTime, amr: JwtAmrValue) -> Self {
+        Self { auth_time, amr }
+    }
+
+    /// The `(amr, auth_time)` access token claims. A token without a user never has them.
+    fn access_claims(
+        authentication: Option<&Self>,
+        has_user: bool,
+    ) -> (Option<Vec<&'static str>>, Option<i64>) {
+        match authentication {
+            Some(auth) if has_user => (Some(vec![auth.amr.as_str()]), Some(auth.auth_time.get())),
+            _ => (None, None),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum DeviceCodeFlow {
     Yes(String),
@@ -143,6 +181,7 @@ impl TokenSet {
         resource: Option<&str>,
         act: Option<ActClaim<'_>>,
         device_code_flow: DeviceCodeFlow,
+        authentication: Option<&TokenAuthentication>,
     ) -> Result<(AccessTokenJti, String), ErrorResponse> {
         let did = match device_code_flow {
             DeviceCodeFlow::Yes(did) => Some(did),
@@ -166,6 +205,10 @@ impl TokenSet {
         } else {
             None
         };
+
+        // `amr` / `auth_time` describe an interactive user authentication, so they are only ever
+        // set for user tokens and never for `client_credentials`.
+        let (amr, auth_time) = TokenAuthentication::access_claims(authentication, user.is_some());
 
         let user_id = user.map(|u| u.id.as_str());
         let now = Utc::now().timestamp();
@@ -221,6 +264,8 @@ impl TokenSet {
             roles,
             groups,
             custom: None,
+            amr,
+            auth_time,
             act,
             custom_flattened: None,
         };
@@ -298,7 +343,7 @@ impl TokenSet {
     pub async fn build_id_token(
         user: &User,
         client: &Client,
-        auth_time: AuthTime,
+        authentication: &TokenAuthentication,
         dpop_fingerprint: Option<DpopFingerprint>,
         at_hash: AtHash,
         lifetime: i64,
@@ -306,11 +351,8 @@ impl TokenSet {
         scope: &str,
         scope_customs: Option<(Vec<&Scope>, &Option<HashMap<String, Vec<u8>>>)>,
         sid: Option<SessionId>,
-        mfa_method: MfaMethod,
     ) -> Result<String, ErrorResponse> {
         let config = RauthyConfig::get();
-
-        let amr = amr_for(mfa_method);
 
         // Solid-OIDC ephemeral clients additionally carry the `solid` audience.
         let aud = if client.is_ephemeral() && config.vars.ephemeral_clients.enable_solid_aud {
@@ -345,8 +387,8 @@ impl TokenSet {
                     .as_ref()
                     .map(|jkt| JktClaim { jkt: &jkt.0 }),
             },
-            amr: vec![amr.as_str()],
-            auth_time: auth_time.get(),
+            amr: vec![authentication.amr.as_str()],
+            auth_time: authentication.auth_time.get(),
             at_hash: at_hash.0.as_str(),
             sid: sid.as_ref().map(|sid| sid.0.as_str()),
             email: None,
@@ -590,6 +632,8 @@ impl TokenSet {
             resource,
             None,
             DeviceCodeFlow::No,
+            // no user, so there is no user authentication to describe
+            None,
         )
         .await?;
 
@@ -614,6 +658,7 @@ impl TokenSet {
         scope: TokenScopes<'_>,
         resource: Option<&str>,
         act: Option<ActClaim<'_>>,
+        authentication: Option<TokenAuthentication>,
     ) -> Result<Self, ErrorResponse> {
         let token_type = if dpop_fingerprint.is_some() {
             JwtTokenType::DPoP
@@ -668,6 +713,7 @@ impl TokenSet {
             resource,
             act,
             DeviceCodeFlow::No,
+            authentication.as_ref(),
         )
         .await?;
 
@@ -774,6 +820,8 @@ impl TokenSet {
         } else {
             JwtTokenType::Bearer
         };
+        // The access and the id token always describe the same authentication.
+        let authentication = TokenAuthentication::new(auth_time, mfa_method);
         let (jti, access_token) = Self::build_access_token(
             Some(user),
             client,
@@ -785,6 +833,7 @@ impl TokenSet {
             resource.as_deref(),
             None,
             device_code_flow.clone(),
+            Some(&authentication),
         )
         .await?;
 
@@ -795,7 +844,7 @@ impl TokenSet {
         let id_token = Self::build_id_token(
             user,
             client,
-            auth_time.clone(),
+            &authentication,
             dpop_fingerprint.clone(),
             at_hash,
             lifetime,
@@ -803,7 +852,6 @@ impl TokenSet {
             &scope,
             customs_id,
             sid.clone(),
-            mfa_method,
         )
         .await?;
         let scope = scope.into_owned();
@@ -813,7 +861,7 @@ impl TokenSet {
                     user,
                     dpop_fingerprint,
                     client,
-                    auth_time,
+                    authentication.auth_time,
                     Duration::from_secs(lifetime as u64),
                     scopes.map(TokenScopes::new),
                     mfa_method,
@@ -861,6 +909,41 @@ mod tests {
         assert_eq!(amr_for(MfaMethod::WebAuthn).as_str(), "mfa");
         assert_eq!(amr_for(MfaMethod::Provider).as_str(), "mfa");
         assert_eq!(amr_for(MfaMethod::Otp).as_str(), "otp");
+    }
+
+    #[test]
+    fn access_token_authentication_claims() {
+        let cases = [
+            (MfaMethod::WebAuthn, "mfa"),
+            (MfaMethod::Provider, "mfa"),
+            (MfaMethod::Otp, "otp"),
+            (MfaMethod::None, "pwd"),
+            (MfaMethod::Legacy, "pwd"),
+        ];
+        for (method, expected) in cases {
+            let auth = TokenAuthentication::new(AuthTime::given(1_700_000_000), method);
+            // the id token renders exactly the same `amr`
+            assert_eq!(auth.amr, amr_for(method));
+            let (amr, auth_time) = TokenAuthentication::access_claims(Some(&auth), true);
+            assert_eq!(amr, Some(vec![expected]), "{method:?}");
+            assert_eq!(auth_time, Some(1_700_000_000));
+        }
+    }
+
+    #[test]
+    fn access_token_without_user_has_no_authentication_claims() {
+        // `client_credentials`: no user, no authentication
+        assert_eq!(
+            TokenAuthentication::access_claims(None, false),
+            (None, None)
+        );
+        // even when an authentication is passed in by mistake, a token without a user must
+        // never claim one
+        let auth = TokenAuthentication::new(AuthTime::given(1), MfaMethod::WebAuthn);
+        assert_eq!(
+            TokenAuthentication::access_claims(Some(&auth), false),
+            (None, None)
+        );
     }
 
     #[test]

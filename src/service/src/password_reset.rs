@@ -43,6 +43,8 @@ pub async fn handle_get_pwd_reset<'a>(
             csrf_token: ml.csrf_token.clone(),
             magic_link_id: ml.id.clone(),
             needs_mfa: user.has_webauthn_enabled(),
+            passkey_only: MagicLinkUsage::try_from(&ml.usage)?
+                .is_passkey_only(RauthyConfig::get().vars.webauthn.new_user_passkey_only),
             password_policy: PasswordPolicyResponse::from(password_policy),
             user_id,
         };
@@ -177,6 +179,17 @@ pub async fn handle_put_user_password_reset<'a>(
 
     let mut ml = MagicLink::find(&req_data.magic_link_id).await?;
     ml.validate(&user.id, &req, true)?;
+
+    // The UI does not offer a password for such a link, but it must not be possible to set one
+    // via the API either.
+    if MagicLinkUsage::try_from(&ml.usage)?
+        .is_passkey_only(RauthyConfig::get().vars.webauthn.new_user_passkey_only)
+    {
+        return Err(ErrorResponse::new(
+            ErrorResponseType::Forbidden,
+            "Only a passkey can be registered for this account",
+        ));
+    }
 
     user.apply_password_rules(&req_data.password).await?;
 

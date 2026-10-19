@@ -2288,6 +2288,50 @@ pub async fn put_user_webid_data(
     Ok(HttpResponse::Ok().finish())
 }
 
+/// Sends the account setup E-Mail for an existing user again
+///
+/// This is the same E-Mail a newly created user receives (`new_user` magic link). All other
+/// open password reset / setup links of this user become invalid. With
+/// `webauthn.new_user_passkey_only`, the link only allows the registration of a passkey.
+///
+/// The user must not have any passkey left; delete them first to reset the sign-in of a user.
+/// The response does not tell whether the E-Mail could be delivered.
+///
+/// **Permissions**
+/// - `rauthy_admin` session or ApiKey with `Users: update`
+#[utoipa::path(
+    post,
+    path = "/users/{id}/setup_mail",
+    tag = "users",
+    responses(
+        (status = 204, description = "NoContent"),
+        (status = 400, description = "BadRequest", body = ErrorResponse),
+        (status = 401, description = "Unauthorized", body = ErrorResponse),
+        (status = 403, description = "Forbidden", body = ErrorResponse),
+        (status = 404, description = "NotFound", body = ErrorResponse),
+    ),
+)]
+#[post("/users/{id}/setup_mail")]
+pub async fn post_user_setup_mail(
+    path: web::Path<String>,
+    principal: ReqPrincipal,
+    req: HttpRequest,
+) -> Result<HttpResponse, ErrorResponse> {
+    principal.validate_api_key_or_admin_session(AccessGroup::Users, AccessRights::Update)?;
+
+    let user = User::find(path.into_inner()).await?;
+    user.send_setup_mail().await?;
+
+    Event::user_password_reset(
+        format!("Setup E-Mail sent by an admin: {}", user.email),
+        real_ip_from_req(&req).ok().map(|ip| ip.to_string()),
+    )
+    .send()
+    .await?;
+
+    Ok(HttpResponse::NoContent().finish())
+}
+
 /// Request a password reset
 ///
 /// This Endpoint will always return an `OK` to not provide any additional attack surface.

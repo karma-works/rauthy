@@ -133,6 +133,16 @@ pub struct JwtAccessClaims<'a> {
     pub groups: Option<Vec<&'a str>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub custom: Option<HashMap<String, serde_json::Value>>,
+    /// Authentication methods of the user behind this token, derived exactly like the id token
+    /// `amr` from the factor that has actually been verified. Only set for tokens that represent
+    /// a user, never for `client_credentials`.
+    #[serde(borrow, skip_serializing_if = "Option::is_none")]
+    pub amr: Option<Vec<&'a str>>,
+    /// Time of the last interactive authentication of the user behind this token, identical to
+    /// the id token `auth_time`. A refresh keeps the original value. Never set for
+    /// `client_credentials`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auth_time: Option<i64>,
     /// RFC 8693 §4.1: the acting party of a delegation. Only set when a token was issued
     /// via the token exchange with an `actor_token`.
     #[serde(borrow, skip_serializing_if = "Option::is_none")]
@@ -389,7 +399,7 @@ impl Display for JwtAmrValue {
 }
 
 impl JwtAmrValue {
-    pub fn as_str(&self) -> &str {
+    pub fn as_str(&self) -> &'static str {
         match self {
             Self::Pwd => "pwd",
             Self::Mfa => "mfa",
@@ -463,6 +473,8 @@ mod tests {
             roles: None,
             groups: None,
             custom: Some(nested),
+            amr: None,
+            auth_time: None,
             act: None,
             custom_flattened: Some(flattened),
         };
@@ -497,6 +509,8 @@ mod tests {
             roles: None,
             groups: None,
             custom: Some(nested),
+            amr: None,
+            auth_time: None,
             act: None,
             custom_flattened: Some(flattened),
         };
@@ -629,6 +643,8 @@ mod tests {
             roles: None,
             groups: None,
             custom: None,
+            amr: None,
+            auth_time: None,
             act: Some(ActClaim {
                 sub: "outer",
                 act: Some(Box::new(ActClaim {
@@ -677,5 +693,61 @@ mod tests {
             v.get("act").is_none(),
             "a token issued without an `actor_token` must not carry `act`"
         );
+    }
+
+    // `amr` and `auth_time` are emitted at the root of user access tokens, survive a round trip
+    // as first-class fields (not inside the greedy `custom_flattened` map), and are omitted
+    // entirely when absent, e.g. for `client_credentials`.
+    #[test]
+    fn access_token_amr_auth_time() {
+        let mut claims = JwtAccessClaims {
+            common: common(),
+            allowed_origins: None,
+            email: None,
+            email_verified: None,
+            roles: None,
+            groups: None,
+            custom: None,
+            amr: Some(vec!["mfa"]),
+            auth_time: Some(1_700_000_000),
+            act: None,
+            custom_flattened: None,
+        };
+
+        let v = serde_json::to_value(&claims).unwrap();
+        assert_eq!(v["amr"], json!(["mfa"]));
+        assert_eq!(v["auth_time"], json!(1_700_000_000));
+
+        let bytes = serde_json::to_vec(&claims).unwrap();
+        let back = serde_json::from_slice::<JwtAccessClaims>(&bytes).unwrap();
+        assert_eq!(back.amr, Some(vec!["mfa"]));
+        assert_eq!(back.auth_time, Some(1_700_000_000));
+        assert!(
+            back.custom_flattened
+                .is_none_or(|cf| { !cf.contains_key("amr") && !cf.contains_key("auth_time") })
+        );
+
+        claims.amr = None;
+        claims.auth_time = None;
+        let v = serde_json::to_value(&claims).unwrap();
+        assert!(v.get("amr").is_none(), "`amr` must be omitted when None");
+        assert!(
+            v.get("auth_time").is_none(),
+            "`auth_time` must be omitted when None"
+        );
+    }
+
+    // A custom attribute promoted to the root must never shadow the access token `amr` /
+    // `auth_time`, which a resource server uses for its MFA and freshness decisions.
+    #[test]
+    fn flattened_amr_auth_time_are_rejected() {
+        for key in ["amr", "auth_time"] {
+            let mut flattened = HashMap::new();
+            flattened.insert(key.to_string(), json!(["mfa"]));
+            assert!(
+                validate_no_reserved_collision(&flattened).is_err(),
+                "`{key}` must be reserved"
+            );
+        }
     }
 }

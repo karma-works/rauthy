@@ -53,6 +53,30 @@ you'll need to disable the setting "Autofill Passwords and Passkeys".
 ![the setting Autofill Passwords and Passkeys is under a section called AutoFill and Passwords](img/macos_autofill.png)
 ```
 
+### Passkey Only Setup for New Users
+
+By default, a new user can choose between a password and a Passkey during the setup from the
+"new account" E-Mail. With `webauthn.new_user_passkey_only = true`, the setup only offers the
+registration of a Passkey, and setting a password with such a link is rejected by the backend. This
+also applies to accounts that have neither a password nor a Passkey, for instance after an admin
+deleted all of their Passkeys. Accounts that already have a password are not affected.
+
+```toml
+[webauthn]
+new_user_passkey_only = true
+```
+
+### Resetting the Sign-In of a User
+
+When a user lost all Passkeys, an admin can reset the sign-in via the API:
+
+1. List the Passkeys with `GET /auth/v1/users/{id}/webauthn` and delete each one with
+   `DELETE /auth/v1/users/{id}/webauthn/delete/{name}` (body `{}`).
+2. Revoke all sessions and refresh tokens with `DELETE /auth/v1/sessions/{user_id}`. Device
+   refresh tokens are only revoked with `access.token_revoke_device_tokens = true`.
+3. Send a new setup E-Mail with `POST /auth/v1/users/{id}/setup_mail`. This invalidates any older
+   reset or setup link of the user and is refused while the user still has a Passkey.
+
 ## Config
 
 You should use Passkeys / Webauthn in production for 2FA / MFA. To make sure it works, you need to

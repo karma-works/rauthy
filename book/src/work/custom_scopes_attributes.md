@@ -158,3 +158,33 @@ Custom claims can only be set by an admin (or via the management API). Dynamic c
 dynamic client registration endpoint) and ephemeral clients cannot set their own claims, which would otherwise be
 a privilege-escalation vector: a client must not be able to assert facts about itself that it was never granted.
 ```
+
+## Authentication Claims in the Access Token
+
+Every access token that represents a user also carries `amr` and `auth_time`, with exactly the
+same values as the id token of the same token set. This allows a resource server, which usually
+only sees the access token, to enforce MFA or a recent login itself.
+
+- `amr` is derived from the factor that has actually been verified for this login, never from the
+  factors a user has merely configured: `["mfa"]` after a Passkey / WebAuthn or an upstream auth
+  provider MFA, `["otp"]` after an E-Mail OTP, `["pwd"]` otherwise.
+- `auth_time` is the time of the last interactive authentication, in seconds since the epoch. A
+  `refresh_token` grant keeps both values of the original login, it is no new authentication. For
+  the `device_code` flow, `auth_time` is the time the device received its first token set.
+- A token exchange keeps `amr` and `auth_time` of the `subject_token`.
+- `client_credentials` tokens have no user and never carry either claim.
+
+```json
+{
+  "sub": "za9UxpH7XVxqrtpEbThoqvn2",
+  "azp": "my_client",
+  "typ": "Bearer",
+  "scope": "openid",
+  "amr": [
+    "mfa"
+  ],
+  "auth_time": 1721722389
+}
+```
+
+Both names are reserved, so a custom attribute emitted at the token root can never shadow them.

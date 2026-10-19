@@ -2002,6 +2002,34 @@ impl User {
         }
     }
 
+    /// Sends the account setup E-Mail again, the same one a newly created user receives. All
+    /// other open `password_reset` / `new_user` links of this user are invalidated first.
+    ///
+    /// Refused while the user still has a passkey: a setup link can register a passkey without
+    /// any proof of an existing one, so it is only meant for accounts that have been reset.
+    pub async fn send_setup_mail(&self) -> Result<(), ErrorResponse> {
+        if self.has_webauthn_enabled() {
+            return Err(ErrorResponse::new(
+                ErrorResponseType::BadRequest,
+                "The user still has a passkey. Remove all passkeys before sending a setup E-Mail.",
+            ));
+        }
+
+        MagicLink::delete_all_credential_links_for_user(&self.id).await?;
+        let magic_link = MagicLink::create(
+            self.id.clone(),
+            RauthyConfig::get().vars.lifetimes.magic_link_pwd_first,
+            MagicLinkUsage::NewUser(None),
+        )
+        .await?;
+
+        let values = UserValues::find(&self.id).await?;
+        let tz = values.as_ref().and_then(|uv| uv.tz.as_deref());
+        send_pwd_reset(&magic_link, self, tz).await;
+
+        Ok(())
+    }
+
     pub async fn request_password_reset(
         &self,
         redirect_uri: Option<String>,
