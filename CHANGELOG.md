@@ -4,6 +4,30 @@
 
 ### Changes
 
+#### Split Login Page
+
+A new, optional `access.login_layout` (`LOGIN_LAYOUT`) shows the login page for clients with
+`force_mfa` as two cards:
+
+- **Known device:** one button that logs in with a passkey stored on this device.
+- **New device:** the E-Mail, then a passkey from a smartphone (QR code) or a security key. The
+  browser is asked to offer these first via the WebAuthn `hints`.
+
+Both cards use the discoverable passkey login. The response therefore never depends on whether an
+account exists for an E-Mail. When the login request carries an E-Mail together with the
+`resident_key_token`, the passkey must belong to this E-Mail, otherwise the login is rejected. The
+default layout no longer sends the E-Mail along with a passkey login.
+
+The split layout has no password login, and it only finds passkeys registered as Resident Keys.
+Clients without `force_mfa` keep the default layout.
+
+```toml
+[access]
+# default: 'default'
+# overwritten by: LOGIN_LAYOUT
+login_layout = 'split'
+```
+
 #### Passkey Types
 
 [#1792](https://github.com/sebadob/rauthy/issues/1792)

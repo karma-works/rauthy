@@ -243,6 +243,27 @@ export const I18nNb: I18n = {
         privacy: 'Personvern',
         help: 'Hjelp',
     },
+    splitLogin: {
+        title: 'Logg inn på {client}',
+        intro: 'Velg alternativet som passer din situasjon.',
+        existingTag: 'Logg inn på en kjent enhet',
+        existingTitle: 'Jeg har logget inn her før',
+        existingDesc:
+            'En passkey er allerede lagret på denne datamaskinen eller smarttelefonen. Ett klikk, og bekreft deretter med fingeravtrykk, ansikt eller PIN.',
+        existingButton: 'Logg inn med passkey',
+        existingNotFound:
+            'Fant ingen passkey på denne enheten. Bruk «Ny innlogging» med smarttelefonen eller sikkerhetsnøkkelen.',
+        newTag: 'Ny innlogging',
+        newTitle: 'Første gang her eller en annen enhet',
+        newDesc:
+            'Skriv inn e-postadressen din. Bekreft deretter med smarttelefonen eller sikkerhetsnøkkelen.',
+        emailPlaceholder: 'navn@eksempel.no',
+        continue: 'Fortsett',
+        or: 'eller',
+        lost: 'Mistet passkey? Kontakt administratoren din.',
+        wrongAccount:
+            'Innlogging ikke mulig. Kontroller e-postadressen og bruk en passkey for denne kontoen.',
+    },
     logout: {
         logout: 'Logg ut',
         confirmMsg: 'Er du sikker på at du vil logge ut og avslutte økten?',

@@ -238,6 +238,25 @@ export const I18nKo: I18n = {
         privacy: '개인정보 처리방침',
         help: '도움말',
     },
+    splitLogin: {
+        title: '{client}에 로그인',
+        intro: '상황에 맞는 방법을 선택하세요.',
+        existingTag: '기존 기기에서 로그인',
+        existingTitle: '이 기기에서 로그인한 적이 있습니다',
+        existingDesc:
+            '이 컴퓨터 또는 스마트폰에 패스키가 이미 저장되어 있습니다. 클릭한 후 지문, 얼굴 또는 PIN으로 확인하세요.',
+        existingButton: '패스키로 로그인',
+        existingNotFound:
+            '이 기기에서 패스키를 찾을 수 없습니다. 스마트폰 또는 보안 키로 "새 로그인"을 사용하세요.',
+        newTag: '새 로그인',
+        newTitle: '처음이거나 다른 기기',
+        newDesc: '이메일 주소를 입력한 후 스마트폰 또는 보안 키로 확인하세요.',
+        emailPlaceholder: 'name@example.com',
+        continue: '계속',
+        or: '또는',
+        lost: '패스키를 분실했나요? 관리자에게 문의하세요.',
+        wrongAccount: '로그인할 수 없습니다. 이메일 주소를 확인하고 이 계정의 패스키를 사용하세요.',
+    },
     logout: {
         logout: '로그아웃',
         confirmMsg: '로그아웃하고 세션을 종료하겠습니까?',

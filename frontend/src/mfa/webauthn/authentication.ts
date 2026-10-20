@@ -9,6 +9,9 @@ import type {
 import { base64UrlSafeToArrBuf } from './utils';
 import type { MfaPurpose } from '$api/types/mfa.js';
 
+/** WebAuthn L3 `hints`: which authenticator the browser should offer first. Ignored if unknown. */
+export type PasskeyHint = 'client-device' | 'hybrid' | 'security-key';
+
 export interface WebauthnAuthResult {
     error?: string;
     data?: WebauthnAdditionalData;
@@ -19,6 +22,7 @@ export async function webauthnAuth(
     errorI18nInvalidKey: string,
     errorI18nTimeout: string,
     resetUserId?: string,
+    hints?: PasskeyHint[],
 ): Promise<WebauthnAuthResult> {
     let startUri = '/auth/v1/users/webauthn_start';
     if (purpose === 'PasswordReset') {
@@ -63,6 +67,13 @@ export async function webauthnAuth(
         for (let cred of challenge.publicKey.allowCredentials) {
             cred.id = base64UrlSafeToArrBuf(cred.id);
         }
+    }
+
+    if (hints && hints.length > 0) {
+        // not yet part of the TS DOM types
+        (
+            challenge.publicKey as PublicKeyCredentialRequestOptions & { hints?: PasskeyHint[] }
+        ).hints = hints;
     }
 
     // prompt for the passkey and get its public key

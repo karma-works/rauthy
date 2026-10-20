@@ -245,6 +245,26 @@ export const I18nEn: I18n = {
         privacy: 'Privacy',
         help: 'Help',
     },
+    splitLogin: {
+        title: 'Sign in to {client}',
+        intro: 'Choose the option that fits your situation.',
+        existingTag: 'Sign in on a known device',
+        existingTitle: 'I have signed in here before',
+        existingDesc:
+            'A passkey is already stored on this computer or smartphone. One click, then confirm with your fingerprint, face or PIN.',
+        existingButton: 'Sign in with passkey',
+        existingNotFound:
+            'No passkey was found on this device. Use "New sign-in" with your smartphone or security key.',
+        newTag: 'New sign-in',
+        newTitle: 'First time here or another device',
+        newDesc: 'Enter your email address. Then confirm with your smartphone or security key.',
+        emailPlaceholder: 'name@example.com',
+        continue: 'Continue',
+        or: 'or',
+        lost: 'Lost your passkey? Contact your administrator.',
+        wrongAccount:
+            'Sign-in not possible. Check the email address and use a passkey of this account.',
+    },
     logout: {
         logout: 'Logout',
         confirmMsg: 'Do you really want to logout and end your session?',

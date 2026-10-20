@@ -235,6 +235,26 @@ export const I18nJa: I18n = {
         privacy: 'プライバシー',
         help: 'ヘルプ',
     },
+    splitLogin: {
+        title: '{client} にサインイン',
+        intro: '状況に合った方法を選んでください。',
+        existingTag: '登録済みのデバイスでサインイン',
+        existingTitle: 'このデバイスでサインインしたことがあります',
+        existingDesc:
+            'このコンピューターまたはスマートフォンにはパスキーが保存されています。クリックして、指紋、顔、または PIN で確認してください。',
+        existingButton: 'パスキーでサインイン',
+        existingNotFound:
+            'このデバイスにパスキーが見つかりません。スマートフォンまたはセキュリティキーで「新規サインイン」を使用してください。',
+        newTag: '新規サインイン',
+        newTitle: '初めて、または別のデバイス',
+        newDesc: 'メールアドレスを入力し、スマートフォンまたはセキュリティキーで確認してください。',
+        emailPlaceholder: 'name@example.com',
+        continue: '続行',
+        or: 'または',
+        lost: 'パスキーを紛失しましたか？管理者に連絡してください。',
+        wrongAccount:
+            'サインインできません。メールアドレスを確認し、このアカウントのパスキーを使用してください。',
+    },
     logout: {
         logout: 'ログアウト',
         confirmMsg: 'ログアウトしてセッションを終了しますか？',
