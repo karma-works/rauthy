@@ -8,6 +8,7 @@ use rauthy_api_types::themes::ThemeRequestResponse;
 use rauthy_data::entity::api_keys::{AccessGroup, AccessRights};
 use rauthy_data::entity::clients::Client;
 use rauthy_data::entity::theme::ThemeCssFull;
+use rauthy_data::rauthy_config::RauthyConfig;
 use rauthy_error::{ErrorResponse, ErrorResponseType};
 
 /// Get the theme for the given `client_id`.
@@ -53,6 +54,30 @@ pub async fn get_theme(
         .insert_header((CACHE_CONTROL, "max-age=31104000, public"))
         // .insert_header((ETAG, etag))
         .body(body))
+}
+
+/// The font from `theme.font_file`
+#[utoipa::path(
+    get,
+    path = "/theme_font",
+    tag = "generic",
+    responses(
+        (status = 200, description = "Ok"),
+        (status = 404, description = "NotFound"),
+    ),
+)]
+#[get("/theme_font")]
+pub async fn get_theme_font() -> Result<HttpResponse, ErrorResponse> {
+    let Some(font) = &RauthyConfig::get().vars.theme.font_woff2 else {
+        return Err(ErrorResponse::new(
+            ErrorResponseType::NotFound,
+            "no `theme.font_file` configured",
+        ));
+    };
+    Ok(HttpResponse::Ok()
+        .insert_header((CONTENT_TYPE, "font/woff2"))
+        .insert_header((CACHE_CONTROL, "max-age=604800, public"))
+        .body(font.clone()))
 }
 
 /// Get the theme as a JSON object for the Admin UI for the given `client_id`.

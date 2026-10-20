@@ -1,4 +1,5 @@
 <script lang="ts">
+    import CustomLogo from '$lib/CustomLogo.svelte';
     import { generatePassword, normalizeClientUri } from '$utils/helpers';
     import Button from '$lib5/button/Button.svelte';
     import PasswordPolicy from '$lib5/PasswordPolicy.svelte';
@@ -338,6 +339,7 @@
             </p>
         {:else if tplData}
             <div class="container">
+                <CustomLogo />
                 <div>
                     {#if requestType.get()?.startsWith('new_user')}
                         <h1>{t.passwordReset.newAccount}</h1>

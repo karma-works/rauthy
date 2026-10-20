@@ -38,6 +38,8 @@ export const svelteConfig = {
             'script-src': ['self', 'wasm-unsafe-eval'],
             'style-src': ['self', 'unsafe-inline'],
             'img-src': ['self'],
+            // `theme.font_file` is served by Rauthy itself
+            'font-src': ['self'],
         },
     },
 };

@@ -19,6 +19,17 @@ page:
 The `device` label is derived from the `User-Agent` when a session is created and stored in the
 new column `sessions.device` (migrations `V36` / `41`). The full `User-Agent` is not stored.
 
+#### Font and Logo for All Pages
+
+- The new `[theme]` section sets a font for all pages: `font_family` (`THEME_FONT_FAMILY`) and
+  optionally `font_file` (`THEME_FONT_FILE`), a WOFF2 file that Rauthy reads at startup and serves
+  at `/auth/v1/theme_font`. No page loads a font from another origin. The CSP of all pages allows
+  `font-src 'self'`.
+- The account page, the account setup and the device page show the logo of the `rauthy` client
+  once a custom one has been uploaded. Without a custom logo, these pages stay unchanged.
+- Cached pages show a new `rauthy` logo right after the upload. Before, they kept the old
+  timestamp until a restart.
+
 #### Split Login Page
 
 A new, optional `access.login_layout` (`LOGIN_LAYOUT`) shows the login page for clients with
