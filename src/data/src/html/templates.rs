@@ -49,6 +49,8 @@ pub struct TplPasswordReset {
 #[derive(Debug)]
 pub enum HtmlTemplate {
     AdminButtonHide(bool),
+    /// `webauthn.ask_shared_device`
+    AskSharedDevice,
     AtprotoId(String),
     /// Auth providers as pre-built, cached JSON value
     AuthProviders(String),
@@ -83,6 +85,7 @@ impl HtmlTemplate {
     pub fn id(&self) -> &'static str {
         match self {
             Self::AdminButtonHide(_) => "tpl_admin_btn_hide",
+            Self::AskSharedDevice => "tpl_ask_shared_device",
             Self::AtprotoId(_) => "tpl_atproto_id",
             Self::AuthProviders(_) => "tpl_auth_providers",
             Self::ClientName(_) => "tpl_client_name",
@@ -115,6 +118,11 @@ impl HtmlTemplate {
     pub fn inner(&self) -> String {
         match self {
             Self::AdminButtonHide(i) => i.to_string(),
+            Self::AskSharedDevice => RauthyConfig::get()
+                .vars
+                .webauthn
+                .ask_shared_device
+                .to_string(),
             Self::AtprotoId(i) => i.to_string(),
             Self::AuthProviders(i) => i.to_string(),
             Self::ClientName(i) => i.to_string(),
@@ -944,6 +952,7 @@ impl PwdResetHtml<'_> {
             templates: &[
                 HtmlTemplate::PasswordReset(template),
                 HtmlTemplate::PasskeyRegType,
+                HtmlTemplate::AskSharedDevice,
             ],
         };
 

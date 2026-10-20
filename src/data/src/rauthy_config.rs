@@ -1277,6 +1277,7 @@ Your account has not been compromised and no data was leaked."#.into()),
                 new_user_passkey_only: false,
                 passkey_accounts_no_password: false,
                 notify_passkey_added: false,
+                ask_shared_device: false,
             },
             atproto: VarsAtproto { enable: false },
         }
@@ -3974,6 +3975,14 @@ impl Vars {
         ) {
             self.webauthn.notify_passkey_added = v;
         }
+        if let Some(v) = t_bool(
+            &mut table,
+            "webauthn",
+            "ask_shared_device",
+            "WEBAUTHN_ASK_SHARED_DEVICE",
+        ) {
+            self.webauthn.ask_shared_device = v;
+        }
 
         check_table_empty(table, "webauthn");
     }
@@ -4750,6 +4759,8 @@ pub struct VarsWebauthn {
     pub passkey_accounts_no_password: bool,
     /// If `true`, the user gets an E-Mail each time a passkey was added to the account.
     pub notify_passkey_added: bool,
+    /// If `true`, the UI asks before each passkey registration whether the computer is shared.
+    pub ask_shared_device: bool,
 }
 
 impl VarsWebauthn {

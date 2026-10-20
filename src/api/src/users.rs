@@ -2020,6 +2020,17 @@ pub async fn delete_webauthn(
         let token = MfaModToken::find(&token_id).await?;
         let ip = real_ip_from_req(&req)?;
         token.validate(principal.user_id()?, ip)?;
+
+        // The UI never offers this, but the API is used directly by other apps as well.
+        let user = User::find(id.clone()).await?;
+        let count = PasskeyEntity::count_for_user(id.clone()).await?;
+        if !user.account_type().may_remove_own_passkey(count) {
+            return Err(ErrorResponse::new(
+                ErrorResponseType::BadRequest,
+                "The last passkey of a passkey-only account cannot be removed",
+            ));
+        }
+
         warn!("Passkey delete for user {} for key {}", id, name);
         None
     } else {

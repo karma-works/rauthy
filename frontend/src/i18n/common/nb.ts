@@ -264,6 +264,23 @@ export const I18nNb: I18n = {
         wrongAccount:
             'Innlogging ikke mulig. Kontroller e-postadressen og bruk en passkey for denne kontoen.',
     },
+    passkeyDevice: {
+        kind: 'Enhet',
+        kindInternal: 'Denne datamaskinen',
+        kindHybrid: 'Smarttelefon',
+        kindSecurityKey: 'Sikkerhetsnøkkel',
+        sharedQuestion: 'Brukes denne datamaskinen av flere personer med samme brukerkonto?',
+        sharedQuestionHint:
+            'For eksempel en resepsjons-PC der alle logger inn med samme Windows-bruker.',
+        sharedYes: 'Ja, flere personer bruker denne brukerkontoen',
+        sharedNo: 'Nei, brukerkontoen eller enheten er bare min',
+        sharedUnknown: 'Vet ikke',
+        sharedRequired: 'Svar på spørsmålet.',
+        sharedWarning:
+            'En passkey på denne datamaskinen er ikke personlig: Alle som kjenner datamaskinens PIN, kan bruke den. Sett opp passkey på din egen smarttelefon (QR-kode) eller bruk en sikkerhetsnøkkel.',
+        useThisDevice: 'Bruk denne datamaskinen likevel',
+        sharedLabel: 'Satt opp på en delt PC',
+    },
     logout: {
         logout: 'Logg ut',
         confirmMsg: 'Er du sikker på at du vil logge ut og avslutte økten?',

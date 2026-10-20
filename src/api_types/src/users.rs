@@ -352,6 +352,89 @@ pub struct WebauthnRegStartRequest {
     #[validate(length(min = 32, max = 32))]
     pub mfa_mod_token_id: Option<String>,
     pub allow_rk: Option<bool>,
+    /// WebAuthn `hints` for the browser, e.g. `["hybrid", "security-key"]` to offer a smartphone
+    /// or a security key first. Browsers without support ignore them.
+    #[validate(length(max = 3))]
+    pub hints: Option<Vec<PasskeyHint>>,
+}
+
+/// WebAuthn L3 `PublicKeyCredentialHint`
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, ToSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum PasskeyHint {
+    ClientDevice,
+    Hybrid,
+    SecurityKey,
+}
+
+/// How a passkey has been added, derived from the browser's `authenticatorAttachment` and the
+/// transports during the registration. These values are reported by the browser and are not
+/// verified, so they must only be used for display.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PasskeyKind {
+    /// Stored on this computer or phone (platform authenticator)
+    Internal,
+    /// A smartphone used via QR code (hybrid transport)
+    Hybrid,
+    /// A removable security key (USB, NFC)
+    SecurityKey,
+}
+
+impl PasskeyKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Internal => "internal",
+            Self::Hybrid => "hybrid",
+            Self::SecurityKey => "security_key",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "internal" => Some(Self::Internal),
+            "hybrid" => Some(Self::Hybrid),
+            "security_key" => Some(Self::SecurityKey),
+            _ => None,
+        }
+    }
+}
+
+/// The answer to "Is this computer used by several people with the same account?" before a
+/// passkey registration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SharedDeviceChoice {
+    Yes,
+    No,
+    Unknown,
+}
+
+impl SharedDeviceChoice {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Yes => "yes",
+            Self::No => "no",
+            Self::Unknown => "unknown",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "yes" => Some(Self::Yes),
+            "no" => Some(Self::No),
+            "unknown" => Some(Self::Unknown),
+            _ => None,
+        }
+    }
+}
+
+/// The browser's `PublicKeyCredential.authenticatorAttachment`
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, ToSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum AuthenticatorAttachment {
+    Platform,
+    CrossPlatform,
 }
 
 #[derive(Deserialize, Validate, ToSchema)]
@@ -366,6 +449,10 @@ pub struct WebauthnRegFinishRequest {
     /// Validation: `[a-zA-Z0-9]{64}`
     #[validate(regex(path = "*RE_ALNUM_64", code = "[a-zA-Z0-9]{64}"))]
     pub magic_link_id: Option<String>,
+    /// `PublicKeyCredential.authenticatorAttachment` from the browser, used for `kind`
+    pub authenticator_attachment: Option<AuthenticatorAttachment>,
+    /// The answer to the "shared computer" question, if it has been asked
+    pub shared_device: Option<SharedDeviceChoice>,
 }
 
 #[derive(Deserialize, Validate, ToSchema)]
@@ -541,6 +628,12 @@ pub struct PasskeyResponse {
     pub aaguid: Option<String>,
     /// Will be set for an attested device.
     pub description: Option<String>,
+    /// How the passkey has been added, if known. Reported by the browser, not verified.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<PasskeyKind>,
+    /// The answer to the "shared computer" question during the registration, if asked
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shared_device: Option<SharedDeviceChoice>,
 }
 
 #[derive(Serialize, ToSchema)]

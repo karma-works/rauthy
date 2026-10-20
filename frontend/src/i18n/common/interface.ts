@@ -219,6 +219,21 @@ export interface I18n {
         lost: string;
         wrongAccount: string;
     };
+    passkeyDevice: {
+        kind: string;
+        kindInternal: string;
+        kindHybrid: string;
+        kindSecurityKey: string;
+        sharedQuestion: string;
+        sharedQuestionHint: string;
+        sharedYes: string;
+        sharedNo: string;
+        sharedUnknown: string;
+        sharedRequired: string;
+        sharedWarning: string;
+        useThisDevice: string;
+        sharedLabel: string;
+    };
     logout: {
         logout: string;
         confirmMsg: string;

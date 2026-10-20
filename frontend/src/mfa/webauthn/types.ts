@@ -35,7 +35,12 @@ export interface WebauthnRegStartRequest {
     /// Validation: length === 32
     mfa_mod_token_id?: string;
     allow_rk?: boolean;
+    hints?: PasskeyHint[];
 }
+
+/** WebAuthn L3 `hints`: which authenticator the browser should offer first */
+export type PasskeyHint = 'client-device' | 'hybrid' | 'security-key';
+export type SharedDeviceChoice = 'yes' | 'no' | 'unknown';
 
 export interface WebauthnRegFinishRequest {
     /// Validation: RE_USER_NAME / 32
@@ -43,6 +48,8 @@ export interface WebauthnRegFinishRequest {
     data: RegisterPublicKeyCredential;
     /// Validation: RE_ALNUM_64
     magic_link_id?: string;
+    authenticator_attachment?: 'platform' | 'cross-platform';
+    shared_device?: SharedDeviceChoice;
 }
 
 // ######################################################################
