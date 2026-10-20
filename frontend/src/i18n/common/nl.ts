@@ -247,6 +247,27 @@ export const I18nNl: I18n = {
         privacy: 'Privacy',
         help: 'Help',
     },
+    splitLogin: {
+        title: 'Inloggen bij {client}',
+        intro: 'Kies de optie die bij uw situatie past.',
+        existingTag: 'Inloggen op een bekend apparaat',
+        existingTitle: 'Ik heb hier al eerder ingelogd',
+        existingDesc:
+            'Op deze computer of smartphone is al een passkey opgeslagen. Eén klik, bevestig daarna met vingerafdruk, gezicht of pincode.',
+        existingButton: 'Inloggen met passkey',
+        existingNotFound:
+            'Geen passkey gevonden op dit apparaat. Gebruik "Nieuwe login" met uw smartphone of beveiligingssleutel.',
+        newTag: 'Nieuwe login',
+        newTitle: 'Eerste keer hier of ander apparaat',
+        newDesc:
+            'Voer uw e-mailadres in. Bevestig daarna met uw smartphone of beveiligingssleutel.',
+        emailPlaceholder: 'naam@voorbeeld.nl',
+        continue: 'Doorgaan',
+        or: 'of',
+        lost: 'Passkey kwijt? Neem contact op met uw beheerder.',
+        wrongAccount:
+            'Inloggen niet mogelijk. Controleer het e-mailadres en gebruik een passkey van dit account.',
+    },
     logout: {
         logout: 'Uitloggen',
         confirmMsg: 'Weet u zeker dat u wilt uitloggen en uw sessie wilt beëindigen?',

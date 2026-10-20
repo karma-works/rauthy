@@ -324,6 +324,7 @@ impl Default for Vars {
                 whoami_headers: false,
                 admin_button_hide: false,
                 redirect_root_to_account: false,
+                login_layout: LoginLayout::Default,
             },
             auth_headers: VarsAuthHeaders {
                 enable: false,
@@ -1524,6 +1525,9 @@ impl Vars {
             "REDIRECT_ROOT_TO_ACCOUNT",
         ) {
             self.access.redirect_root_to_account = v;
+        }
+        if let Some(v) = t_str(&mut table, "access", "login_layout", "LOGIN_LAYOUT") {
+            self.access.login_layout = LoginLayout::parse(&v);
         }
 
         check_table_empty(table, "access");
@@ -4116,6 +4120,43 @@ pub struct VarsAccess {
     pub whoami_headers: bool,
     pub admin_button_hide: bool,
     pub redirect_root_to_account: bool,
+    pub login_layout: LoginLayout,
+}
+
+/// Layout of the login page, see `access.login_layout`.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum LoginLayout {
+    /// The upstream login form.
+    #[default]
+    Default,
+    /// Two cards, "existing device" and "new device", for clients with `force_mfa`.
+    Split,
+}
+
+impl LoginLayout {
+    fn parse(value: &str) -> Self {
+        match value {
+            "default" => Self::Default,
+            "split" => Self::Split,
+            _ => panic!("`access.login_layout` must be `default` or `split`, found: {value}"),
+        }
+    }
+
+    /// The layout a login page shows for a client: `split` only applies with `force_mfa`.
+    pub fn for_client(self, client_force_mfa: bool) -> Self {
+        if client_force_mfa {
+            self
+        } else {
+            Self::Default
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Default => "default",
+            Self::Split => "split",
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -5182,6 +5223,36 @@ mod tests {
             help_url = 'javascript:alert(1)'
             "#,
         );
+    }
+
+    fn parse_access(toml_src: &str) -> Vars {
+        let mut table: toml::Table = toml::from_str(toml_src).unwrap();
+        let mut vars = Vars::default();
+        vars.parse_access(&mut table);
+        vars
+    }
+
+    #[test]
+    fn test_parse_login_layout() {
+        assert_eq!(parse_access("").access.login_layout, LoginLayout::Default);
+
+        let vars = parse_access("[access]\nlogin_layout = 'split'");
+        assert_eq!(vars.access.login_layout, LoginLayout::Split);
+        assert_eq!(
+            vars.access.login_layout.for_client(true),
+            LoginLayout::Split
+        );
+        assert_eq!(
+            vars.access.login_layout.for_client(false),
+            LoginLayout::Default
+        );
+        assert_eq!(LoginLayout::Default.for_client(true), LoginLayout::Default);
+    }
+
+    #[test]
+    #[should_panic(expected = "access.login_layout")]
+    fn test_parse_login_layout_rejects_unknown() {
+        parse_access("[access]\nlogin_layout = 'cards'");
     }
 
     fn parse_eph(toml_src: &str) -> Vars {

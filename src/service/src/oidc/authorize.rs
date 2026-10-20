@@ -60,7 +60,18 @@ pub async fn post_authorize(
 
     let (user_res, is_rk_authenticated) = if let Some(code) = req_data.resident_key_token {
         let user_id = ResidentKeyToken::get_validated_user_id(&code, &session, &browser_id).await?;
-        (User::find(user_id).await, true)
+        let user_res = User::find(user_id).await;
+        // The split login page sends the E-Mail of its "new device" card along with the token.
+        // The passkey must then belong to exactly this account.
+        if let (Ok(user), Some(email)) = (&user_res, &req_data.email)
+            && !emails_match(&user.email, email)
+        {
+            return Err(ErrorResponse::new(
+                ErrorResponseType::Unauthorized,
+                "The passkey does not belong to the given E-Mail",
+            ));
+        }
+        (user_res, true)
     } else if let Some(email) = req_data.email.clone() {
         (User::find_by_email(email).await, false)
     } else {
@@ -291,6 +302,11 @@ pub async fn post_authorize_refresh(
     .await
 }
 
+/// Compares like `User::find_by_email`, which looks E-Mails up in lowercase.
+fn emails_match(user_email: &str, email: &str) -> bool {
+    user_email.to_lowercase() == email.to_lowercase()
+}
+
 pub(crate) struct AuthorizeData {
     pub redirect_uri: String,
     pub scopes: Option<Vec<String>>,
@@ -497,5 +513,18 @@ pub(crate) async fn finish_authorize(
                 needs_user_update,
             }))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::emails_match;
+
+    #[test]
+    fn test_emails_match() {
+        assert!(emails_match("anna@praxis.de", "anna@praxis.de"));
+        assert!(emails_match("anna@praxis.de", "Anna@Praxis.DE"));
+        assert!(!emails_match("anna@praxis.de", "ben@praxis.de"));
+        assert!(!emails_match("anna@praxis.de", ""));
     }
 }

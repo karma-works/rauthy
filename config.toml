@@ -305,6 +305,23 @@ admin_button_hide = false
 # overwritten by: REDIRECT_ROOT_TO_ACCOUNT
 #redirect_root_to_account = false
 
+# Layout of the login page for clients with `force_mfa`.
+# - `default`: the login form with E-Mail, password and the Passkey
+#   button.
+# - `split`: two cards side by side, "known device" (a discoverable
+#   passkey on this device) and "new device" (E-Mail, then a passkey from
+#   a smartphone via QR code or a security key). Both use the discoverable
+#   passkey login, so the response never depends on whether an account
+#   exists for an E-Mail. The backend makes sure that the passkey belongs
+#   to the given E-Mail. There is no password login in this layout, and
+#   passkeys must be registered as Resident Keys
+#   (`webauthn.passkey_reg_type = 'resident_key'`).
+# Clients without `force_mfa` always get the `default` layout.
+#
+# default: 'default'
+# overwritten by: LOGIN_LAYOUT
+#login_layout = 'default'
+
 [atproto]
 # Set to `true` to enable the ATProto provider. If the public URL is
 # 'localhost' it should be changed to '127.0.0.1', if `dev_mode = true`

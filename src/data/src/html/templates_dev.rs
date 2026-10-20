@@ -88,6 +88,11 @@ impl HtmlTemplate {
             // Simply always return None during local dev.
             "tpl_legal_links" => Ok((Self::LegalLinks, None)),
             "tpl_login_action" => Ok((Self::LoginAction(FrontendAction::None), None)),
+            // the client is unknown here, so `force_mfa` cannot be checked during local dev
+            "tpl_login_layout" => Ok((
+                Self::LoginLayout(RauthyConfig::get().vars.access.login_layout),
+                None,
+            )),
             // "tpl_client_name" => todo!("extract info from referrer?"),
             // "tpl_client_url" => todo!("extract info from referrer?"),
             "tpl_otp_length" => Ok((Self::OtpLength(RauthyConfig::get().vars.otp.length), None)),

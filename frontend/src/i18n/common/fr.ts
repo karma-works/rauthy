@@ -250,6 +250,27 @@ export const I18nFr: I18n = {
         privacy: 'Confidentialité',
         help: 'Aide',
     },
+    splitLogin: {
+        title: 'Se connecter à {client}',
+        intro: "Choisissez l'option adaptée à votre situation.",
+        existingTag: 'Connexion sur un appareil connu',
+        existingTitle: 'Je me suis déjà connecté ici',
+        existingDesc:
+            'Une passkey est déjà enregistrée sur cet ordinateur ou ce smartphone. Un clic suffit, puis confirmez avec votre empreinte, votre visage ou votre code PIN.',
+        existingButton: 'Se connecter avec une passkey',
+        existingNotFound:
+            'Aucune passkey trouvée sur cet appareil. Utilisez « Nouvelle connexion » avec votre smartphone ou votre clé de sécurité.',
+        newTag: 'Nouvelle connexion',
+        newTitle: 'Première fois ou autre appareil',
+        newDesc:
+            'Saisissez votre adresse e-mail. Confirmez ensuite avec votre smartphone ou votre clé de sécurité.',
+        emailPlaceholder: 'nom@exemple.fr',
+        continue: 'Continuer',
+        or: 'ou',
+        lost: 'Passkey perdue ? Contactez votre administrateur.',
+        wrongAccount:
+            "Connexion impossible. Vérifiez l'adresse e-mail et utilisez une passkey de ce compte.",
+    },
     logout: {
         logout: 'Se déconnecter',
         confirmMsg: 'Voulez-vous vraiment vous déconnecter et mettre fin à votre session ?',

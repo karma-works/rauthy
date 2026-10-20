@@ -256,6 +256,27 @@ export const I18nDe: I18n = {
         privacy: 'Datenschutz',
         help: 'Hilfe',
     },
+    splitLogin: {
+        title: 'Anmelden bei {client}',
+        intro: 'Wählen Sie den Weg, der zu Ihrer Situation passt.',
+        existingTag: 'Login an bestehendem Gerät',
+        existingTitle: 'Ich habe mich hier schon angemeldet',
+        existingDesc:
+            'Auf diesem Computer oder Smartphone ist bereits ein Passkey gespeichert. Ein Klick genügt, danach bestätigen Sie mit Fingerabdruck, Gesicht oder PIN.',
+        existingButton: 'Mit Passkey anmelden',
+        existingNotFound:
+            'Auf diesem Gerät wurde kein Passkey gefunden. Nutzen Sie „Neulogin“ mit Ihrem Smartphone oder Sicherheitsschlüssel.',
+        newTag: 'Neulogin',
+        newTitle: 'Erstes Mal hier oder anderes Gerät',
+        newDesc:
+            'Geben Sie Ihre E-Mail-Adresse ein. Danach bestätigen Sie mit Ihrem Smartphone oder Sicherheitsschlüssel.',
+        emailPlaceholder: 'name@beispiel.de',
+        continue: 'Weiter',
+        or: 'oder',
+        lost: 'Passkey verloren? Wenden Sie sich an Ihre Administration.',
+        wrongAccount:
+            'Anmeldung nicht möglich. Prüfen Sie die E-Mail-Adresse und verwenden Sie einen Passkey dieses Kontos.',
+    },
     logout: {
         logout: 'Logout',
         confirmMsg: 'Sind Sie sicher, dass Sie sich ausloggen und die Session beenden möchten?',

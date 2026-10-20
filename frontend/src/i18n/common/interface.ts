@@ -202,6 +202,23 @@ export interface I18n {
         privacy: string;
         help: string;
     };
+    splitLogin: {
+        title: string;
+        intro: string;
+        existingTag: string;
+        existingTitle: string;
+        existingDesc: string;
+        existingButton: string;
+        existingNotFound: string;
+        newTag: string;
+        newTitle: string;
+        newDesc: string;
+        emailPlaceholder: string;
+        continue: string;
+        or: string;
+        lost: string;
+        wrongAccount: string;
+    };
     logout: {
         logout: string;
         confirmMsg: string;

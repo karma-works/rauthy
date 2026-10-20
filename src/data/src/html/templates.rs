@@ -1,5 +1,5 @@
 use crate::language::Language;
-use crate::rauthy_config::{RauthyConfig, VarsLegal};
+use crate::rauthy_config::{LoginLayout, RauthyConfig, VarsLegal};
 use actix_web::http::StatusCode;
 use actix_web::{HttpResponse, HttpResponseBuilder};
 use askama::Template;
@@ -67,6 +67,8 @@ pub enum HtmlTemplate {
     /// `[legal]` links as JSON
     LegalLinks,
     LoginAction(FrontendAction),
+    /// `access.login_layout` for the requesting client
+    LoginLayout(LoginLayout),
     OtpLength(u8),
     PasskeyAccountsNoPassword(bool),
     PasskeyRegType,
@@ -97,6 +99,7 @@ impl HtmlTemplate {
             Self::IsRegOpen(_) => "tpl_is_reg_open",
             Self::LegalLinks => "tpl_legal_links",
             Self::LoginAction(_) => "tpl_login_action",
+            Self::LoginLayout(_) => "tpl_login_layout",
             Self::OtpLength(_) => "tpl_otp_length",
             Self::PasskeyAccountsNoPassword(_) => "tpl_passkey_accounts_no_password",
             Self::PasskeyRegType => "tpl_passkey_reg_type",
@@ -128,6 +131,7 @@ impl HtmlTemplate {
             Self::IsRegOpen(i) => i.to_string(),
             Self::LegalLinks => legal_links_json(&RauthyConfig::get().vars.legal),
             Self::LoginAction(i) => i.to_string(),
+            Self::LoginLayout(i) => i.as_str().to_string(),
             Self::OtpLength(i) => i.to_string(),
             Self::PasskeyAccountsNoPassword(i) => i.to_string(),
             Self::PasskeyRegType => RauthyConfig::get().vars.webauthn.passkey_reg_type_str(),

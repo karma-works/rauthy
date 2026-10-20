@@ -14,6 +14,7 @@
         TPL_CSRF_TOKEN,
         TPL_IS_REG_OPEN,
         TPL_LOGIN_ACTION,
+        TPL_LOGIN_LAYOUT,
         TPL_PASSKEY_REG_TYPE,
         TPL_ATPROTO_ID,
     } from '$utils/constants.js';
@@ -55,6 +56,8 @@
     import type { MfaPurpose } from '$api/types/mfa';
     import type { OtpAdditionalData } from '$mfa/otp/types';
     import IconKey from '$icons/IconKey.svelte';
+    import SplitLogin, { type SplitCard } from '$lib/authorize/SplitLogin.svelte';
+    import type { PasskeyHint } from '$mfa/webauthn/authentication';
 
     const inputWidth = '18rem';
 
@@ -109,6 +112,20 @@
     let hasLoginAlternatives = $derived(isPasskeyDiscoverable || providers.length > 0);
     // the error of a failed Passkey button login, to show a hint with it
     let passkeyDiscoverErr = $state('');
+
+    // `access.login_layout`: `split` shows two cards, for a known and for a new device
+    let loginLayout = $state('default');
+    let isSplit = $derived(loginLayout === 'split');
+    let splitCard: undefined | SplitCard = $state();
+    let passkeyHints: undefined | PasskeyHint[] = $state();
+    let splitLoadingCard = $derived(isLoading || mfaPurpose ? splitCard : undefined);
+    let splitErr = $derived.by(() => {
+        if (!err) return '';
+        if (splitCard === 'existing' && err === passkeyDiscoverErr) {
+            return `${err} ${t.splitLogin.existingNotFound}`;
+        }
+        return err;
+    });
 
     let atprotoId = $state('');
     let atprotoHandle = $state('');
@@ -277,6 +294,22 @@
     }
 
     function onPasskeyDiscover() {
+        passkeyHints = undefined;
+        mfaKind = 'webauthn';
+        mfaPurpose = 'Discover';
+    }
+
+    /**
+     * Both cards use the discoverable passkey login, so the response never depends on whether
+     * an account exists for an E-Mail. The "new device" card only asks the browser to offer a
+     * smartphone (QR code) or a security key first, and the backend checks that the passkey
+     * belongs to the given E-Mail.
+     */
+    function onSplitLogin(card: SplitCard) {
+        err = '';
+        passkeyDiscoverErr = '';
+        splitCard = card;
+        passkeyHints = card === 'existing' ? ['client-device'] : ['hybrid', 'security-key'];
         mfaKind = 'webauthn';
         mfaPurpose = 'Discover';
     }
@@ -305,8 +338,15 @@
 
         let pow = (await fetchSolvePow()) || '';
 
+        // With a passkey, the E-Mail is only sent from the split "new device" card, where the
+        // backend makes sure that the passkey belongs to it.
+        let payloadEmail = email || undefined;
+        if (residentKeyToken && !(isSplit && splitCard === 'new')) {
+            payloadEmail = undefined;
+        }
+
         const payload: LoginRequest = {
-            email: email || undefined,
+            email: payloadEmail,
             pow,
             client_id: clientId,
             redirect_uri: redirectUri,
@@ -437,6 +477,9 @@
                 tooManyRequests = false;
                 err = '';
             }, diff);
+        } else if (isSplit) {
+            // the split layout has no password login
+            err = splitCard === 'new' ? t.splitLogin.wrongAccount : t.authorize.invalidCredentials;
         } else if (!needsPassword) {
             // this will happen always if the user does the first try with a password-only account
             // the good thing about this is, that it is a prevention against autofill passwords from the browser
@@ -596,6 +639,38 @@
 <Template id={TPL_LOGIN_ACTION} bind:value={loginAction} />
 <Template id={TPL_IS_REG_OPEN} bind:value={isRegOpen} />
 <Template id={TPL_PASSKEY_REG_TYPE} bind:value={passkeyRegType} />
+<Template id={TPL_LOGIN_LAYOUT} bind:value={loginLayout} />
+
+{#snippet loginOverlays()}
+    {#if mfaPurpose}
+        {#if mfaKind == 'webauthn'}
+            <WebauthnRequest
+                purpose={mfaPurpose}
+                hints={passkeyHints}
+                onSuccess={onMfaSuccess}
+                onError={onMfaError}
+            />
+        {:else if mfaKind == 'otp' && activeOtps}
+            <OtpRequest
+                {activeOtps}
+                purpose={mfaPurpose}
+                onSuccess={onMfaSuccess}
+                onError={onMfaError}
+            />
+        {/if}
+    {/if}
+
+    {#if tos}
+        <TosAccept {tos} {tosAcceptCode} onToSAccept={handleAuthRes} {onToSCancel} />
+    {/if}
+
+    <Modal bind:showModal={showModalUpdate} strict>
+        <p>{t.authorize.needsUserUpdate}</p>
+        <Button onclick={() => window.location.replace('/auth/v1/account')}>
+            {t.authorize.navigateToAccount}
+        </Button>
+    </Modal>
+{/snippet}
 
 <Main>
     {#if isAutoRefreshing}
@@ -603,250 +678,250 @@
             <Loading global />
         </div>
     {/if}
-    <div class="outer">
-        <ContentCenter>
-            <div class="container">
-                <div class="head">
-                    {#if clientId}
-                        <ClientLogo
-                            {clientId}
-                            updated={clientLogoUpdated > -1 ? clientLogoUpdated : undefined}
-                        />
-                    {/if}
-                    {#if clientUriNormalized}
-                        <a class="home" href={clientUriNormalized} aria-label="Client Home Page">
-                            <IconHome color="hsla(var(--text) / .9)" />
-                        </a>
-                    {/if}
-                </div>
-
-                <div class="name">
-                    <h2>{clientName || clientId}</h2>
-                </div>
-
-                {#if mfaPurpose}
-                    <!--
-                    TODO we could pass in an optional loginCodeExp and make sure
-                    it fits inside the exp returned inside the WebauthnRequest later on
-                    to output proper logs in case of misconfiguration.
-                    Another approach would be to check this in the backend and emit warning logs.
-                    -->
-                    {#if mfaKind == 'webauthn'}
-                        <WebauthnRequest
-                            purpose={mfaPurpose}
-                            onSuccess={onMfaSuccess}
-                            onError={onMfaError}
-                        />
-                    {:else if mfaKind == 'otp' && activeOtps}
-                        <OtpRequest
-                            {activeOtps}
-                            purpose={mfaPurpose}
-                            onSuccess={onMfaSuccess}
-                            onError={onMfaError}
-                        />
-                    {/if}
-                {/if}
-
-                {#if !clientMfaForce}
-                    <Form action={authorizeUrl} {onSubmit}>
-                        <div class:emailMinHeight={!showPasswordInput}>
-                            {#if isAtproto}
-                                <Input
-                                    name="handle"
-                                    bind:value={atprotoHandle}
-                                    label="Handle / DID"
-                                    placeholder="Handle / DID"
-                                    pattern={PATTERN_ATPROTO_ID}
-                                    disabled={tooManyRequests}
-                                    width={inputWidth}
-                                    required
-                                />
-                            {:else}
-                                <Input
-                                    typ="email"
-                                    name="email"
-                                    bind:value={email}
-                                    autocomplete="email"
-                                    label={t.common.email}
-                                    placeholder={t.common.email}
-                                    errMsg={t.authorize.validEmail}
-                                    disabled={tooManyRequests || clientMfaForce || isLoading}
-                                    onInput={onEmailInput}
-                                    width={inputWidth}
-                                    required
-                                />
-                            {/if}
-                        </div>
-
-                        {#if showPasswordInput}
-                            <InputPassword
-                                bind:ref={refPassword}
-                                name="password"
-                                bind:value={password}
-                                autocomplete="current-password"
-                                label={t.common.password}
-                                placeholder={t.common.password}
-                                maxLength={256}
-                                disabled={tooManyRequests || clientMfaForce || isLoading}
-                                width={inputWidth}
-                                required
+    {#if isSplit}
+        <div class="splitPage">
+            <SplitLogin
+                {clientId}
+                clientName={clientName || clientId || ''}
+                clientLogoUpdated={clientLogoUpdated > -1 ? clientLogoUpdated : undefined}
+                bind:email
+                loadingCard={splitLoadingCard}
+                disabled={tooManyRequests}
+                errExisting={splitCard === 'existing' ? splitErr : ''}
+                errNew={splitCard === 'new' ? splitErr : ''}
+                onExisting={() => onSplitLogin('existing')}
+                onNew={() => onSplitLogin('new')}
+            />
+            <div class="splitFooter">
+                <LegalLinks />
+            </div>
+            {@render loginOverlays()}
+            <ThemeSwitch absolute />
+            <LangSelector absolute borderless />
+        </div>
+    {:else}
+        <div class="outer">
+            <ContentCenter>
+                <div class="container">
+                    <div class="head">
+                        {#if clientId}
+                            <ClientLogo
+                                {clientId}
+                                updated={clientLogoUpdated > -1 ? clientLogoUpdated : undefined}
                             />
-
-                            {#if showResetRequest && !tooManyRequests}
-                                <div class="forgotten">
-                                    <Button
-                                        ariaLabel={t.authorize.passwordForgotten}
-                                        invisible
-                                        onclick={handleShowReset}
-                                    >
-                                        {t.authorize.passwordForgotten}
-                                    </Button>
-                                </div>
-                            {/if}
-                        {:else}
-                            <!-- This only exists to help password managers to trigger an auto-fill  -->
-                            <input type="password" hidden aria-hidden="true" style:display="none" />
                         {/if}
+                        {#if clientUriNormalized}
+                            <a
+                                class="home"
+                                href={clientUriNormalized}
+                                aria-label="Client Home Page"
+                            >
+                                <IconHome color="hsla(var(--text) / .9)" />
+                            </a>
+                        {/if}
+                    </div>
 
-                        {#if !tooManyRequests && !clientMfaForce}
-                            {#if showReset && !isAtproto}
-                                <div class="btn flex-col">
-                                    <Button
-                                        ariaLabel={t.authorize.passwordRequest}
-                                        onclick={requestReset}
-                                    >
-                                        {t.authorize.passwordRequest}
-                                    </Button>
-                                </div>
-                            {:else}
-                                <div class="btn flex-col">
-                                    <Button
-                                        type="submit"
-                                        ariaLabel={t.authorize.login}
-                                        onclick={() => onSubmit()}
-                                        isDisabled={email.length === 0}
-                                        {isLoading}
-                                    >
-                                        {t.authorize.login}
-                                    </Button>
-                                </div>
+                    <div class="name">
+                        <h2>{clientName || clientId}</h2>
+                    </div>
+
+                    {@render loginOverlays()}
+
+                    {#if !clientMfaForce}
+                        <Form action={authorizeUrl} {onSubmit}>
+                            <div class:emailMinHeight={!showPasswordInput}>
                                 {#if isAtproto}
-                                    <div class="btn flex-col">
+                                    <Input
+                                        name="handle"
+                                        bind:value={atprotoHandle}
+                                        label="Handle / DID"
+                                        placeholder="Handle / DID"
+                                        pattern={PATTERN_ATPROTO_ID}
+                                        disabled={tooManyRequests}
+                                        width={inputWidth}
+                                        required
+                                    />
+                                {:else}
+                                    <Input
+                                        typ="email"
+                                        name="email"
+                                        bind:value={email}
+                                        autocomplete="email"
+                                        label={t.common.email}
+                                        placeholder={t.common.email}
+                                        errMsg={t.authorize.validEmail}
+                                        disabled={tooManyRequests || clientMfaForce || isLoading}
+                                        onInput={onEmailInput}
+                                        width={inputWidth}
+                                        required
+                                    />
+                                {/if}
+                            </div>
+
+                            {#if showPasswordInput}
+                                <InputPassword
+                                    bind:ref={refPassword}
+                                    name="password"
+                                    bind:value={password}
+                                    autocomplete="current-password"
+                                    label={t.common.password}
+                                    placeholder={t.common.password}
+                                    maxLength={256}
+                                    disabled={tooManyRequests || clientMfaForce || isLoading}
+                                    width={inputWidth}
+                                    required
+                                />
+
+                                {#if showResetRequest && !tooManyRequests}
+                                    <div class="forgotten">
                                         <Button
-                                            ariaLabel={t.common.cancel}
-                                            level={2}
-                                            onclick={toggleAtproto}
+                                            ariaLabel={t.authorize.passwordForgotten}
+                                            invisible
+                                            onclick={handleShowReset}
                                         >
-                                            {t.common.cancel}
+                                            {t.authorize.passwordForgotten}
                                         </Button>
                                     </div>
                                 {/if}
+                            {:else}
+                                <!-- This only exists to help password managers to trigger an auto-fill  -->
+                                <input
+                                    type="password"
+                                    hidden
+                                    aria-hidden="true"
+                                    style:display="none"
+                                />
+                            {/if}
+
+                            {#if !tooManyRequests && !clientMfaForce}
+                                {#if showReset && !isAtproto}
+                                    <div class="btn flex-col">
+                                        <Button
+                                            ariaLabel={t.authorize.passwordRequest}
+                                            onclick={requestReset}
+                                        >
+                                            {t.authorize.passwordRequest}
+                                        </Button>
+                                    </div>
+                                {:else}
+                                    <div class="btn flex-col">
+                                        <Button
+                                            type="submit"
+                                            ariaLabel={t.authorize.login}
+                                            onclick={() => onSubmit()}
+                                            isDisabled={email.length === 0}
+                                            {isLoading}
+                                        >
+                                            {t.authorize.login}
+                                        </Button>
+                                    </div>
+                                    {#if isAtproto}
+                                        <div class="btn flex-col">
+                                            <Button
+                                                ariaLabel={t.common.cancel}
+                                                level={2}
+                                                onclick={toggleAtproto}
+                                            >
+                                                {t.common.cancel}
+                                            </Button>
+                                        </div>
+                                    {/if}
+                                {/if}
+                            {/if}
+                        </Form>
+
+                        {#if isRegOpen && !showResetRequest && !tooManyRequests && !isAtproto}
+                            {#if clientUri}
+                                <a
+                                    class="reg"
+                                    href="/auth/v1/users/register?redirect_uri={clientUri}"
+                                    target="_blank"
+                                >
+                                    {t.authorize.signUp}
+                                </a>
+                            {:else}
+                                <a class="reg" href="/auth/v1/users/register" target="_blank">
+                                    {t.authorize.signUp}
+                                </a>
                             {/if}
                         {/if}
-                    </Form>
+                    {/if}
 
-                    {#if isRegOpen && !showResetRequest && !tooManyRequests && !isAtproto}
-                        {#if clientUri}
-                            <a
-                                class="reg"
-                                href="/auth/v1/users/register?redirect_uri={clientUri}"
-                                target="_blank"
-                            >
-                                {t.authorize.signUp}
-                            </a>
-                        {:else}
-                            <a class="reg" href="/auth/v1/users/register" target="_blank">
-                                {t.authorize.signUp}
-                            </a>
+                    {#if err}
+                        <div class="errMsg">
+                            {err}
+                        </div>
+                        {#if err === passkeyDiscoverErr}
+                            <div class="errMsg">
+                                {t.authorize.passkeyNotDiscovered}
+                            </div>
                         {/if}
                     {/if}
-                {/if}
 
-                {#if err}
-                    <div class="errMsg">
-                        {err}
-                    </div>
-                    {#if err === passkeyDiscoverErr}
-                        <div class="errMsg">
-                            {t.authorize.passkeyNotDiscovered}
+                    {#if emailSuccess}
+                        <div class="success">
+                            {t.authorize.emailSentMsg}
                         </div>
                     {/if}
-                {/if}
 
-                {#if emailSuccess}
-                    <div class="success">
-                        {t.authorize.emailSentMsg}
-                    </div>
-                {/if}
+                    {#if clientMfaForce}
+                        <div class="btn flex-col">
+                            <Button
+                                ariaLabel="Account"
+                                onclick={() => (window.location.href = '/auth/v1/account')}
+                            >
+                                Account
+                            </Button>
+                        </div>
+                    {/if}
 
-                {#if clientMfaForce}
-                    <div class="btn flex-col">
-                        <Button
-                            ariaLabel="Account"
-                            onclick={() => (window.location.href = '/auth/v1/account')}
-                        >
-                            Account
-                        </Button>
-                    </div>
-                {/if}
-
-                {#if tos}
-                    <TosAccept {tos} {tosAcceptCode} onToSAccept={handleAuthRes} {onToSCancel} />
-                {/if}
-
-                {#if !showReset && !clientMfaForce && !isAtproto && hasLoginAlternatives}
-                    <div class="providers flex-col gap-05">
-                        <div class="providersSeparator">
-                            <div class="separator"></div>
-                            <div class="loginWith">
-                                <div>
-                                    {t.authorize.orLoginWith}
+                    {#if !showReset && !clientMfaForce && !isAtproto && hasLoginAlternatives}
+                        <div class="providers flex-col gap-05">
+                            <div class="providersSeparator">
+                                <div class="separator"></div>
+                                <div class="loginWith">
+                                    <div>
+                                        {t.authorize.orLoginWith}
+                                    </div>
                                 </div>
                             </div>
-                        </div>
 
-                        {#if isPasskeyDiscoverable}
-                            <div class="btn flex-col">
-                                <Button
-                                    level={2}
-                                    ariaLabel={t.authorize.login}
-                                    onclick={onPasskeyDiscover}
+                            {#if isPasskeyDiscoverable}
+                                <div class="btn flex-col">
+                                    <Button
+                                        level={2}
+                                        ariaLabel={t.authorize.login}
+                                        onclick={onPasskeyDiscover}
+                                        {isLoading}
+                                    >
+                                        <div class="flex gap-05">
+                                            <IconKey width="1.2rem" />
+                                            Passkey
+                                        </div>
+                                    </Button>
+                                </div>
+                            {/if}
+
+                            {#each providers as provider (provider.id)}
+                                <ButtonAuthProvider
+                                    ariaLabel={`Login: ${provider.name}`}
+                                    {provider}
+                                    onclick={isProviderAtProto(provider.id)
+                                        ? toggleAtproto
+                                        : providerLogin}
                                     {isLoading}
-                                >
-                                    <div class="flex gap-05">
-                                        <IconKey width="1.2rem" />
-                                        Passkey
-                                    </div>
-                                </Button>
-                            </div>
-                        {/if}
+                                />
+                            {/each}
+                        </div>
+                    {/if}
+                </div>
 
-                        {#each providers as provider (provider.id)}
-                            <ButtonAuthProvider
-                                ariaLabel={`Login: ${provider.name}`}
-                                {provider}
-                                onclick={isProviderAtProto(provider.id)
-                                    ? toggleAtproto
-                                    : providerLogin}
-                                {isLoading}
-                            />
-                        {/each}
-                    </div>
-                {/if}
-
-                <Modal bind:showModal={showModalUpdate} strict>
-                    <p>{t.authorize.needsUserUpdate}</p>
-                    <Button onclick={() => window.location.replace('/auth/v1/account')}>
-                        {t.authorize.navigateToAccount}
-                    </Button>
-                </Modal>
-            </div>
-
-            <ThemeSwitch absolute />
-            <LangSelector absolute borderless />
-            <LegalLinks absolute />
-        </ContentCenter>
-    </div>
+                <ThemeSwitch absolute />
+                <LangSelector absolute borderless />
+                <LegalLinks absolute />
+            </ContentCenter>
+        </div>
+    {/if}
 </Main>
 
 <style>
@@ -861,6 +936,21 @@
     .btn {
         margin: 0.8rem 0 0.5rem 0;
         display: flex;
+    }
+
+    .splitPage {
+        width: 100%;
+        min-height: 100dvh;
+        display: flex;
+        flex-direction: column;
+        background: hsla(var(--bg-high) / 0.25);
+    }
+
+    .splitFooter {
+        margin-top: auto;
+        padding: 24px 16px;
+        display: flex;
+        justify-content: center;
     }
 
     .outer {

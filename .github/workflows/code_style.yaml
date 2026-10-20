@@ -61,6 +61,6 @@ jobs:
         working-directory: ./frontend
         run: npm run test:webauthn
         # The Chromium reset-page tests (npm run test:password-reset and
-        # npm run test:new-user-passkey) are not
+        # npm run test:new-user-passkey, npm run test:split-login) are not
         # wired here: they need a browser binary plus the already-built
         # frontend. Run them locally after `just build-ui`.
