@@ -255,6 +255,23 @@ export const I18nJa: I18n = {
         wrongAccount:
             'サインインできません。メールアドレスを確認し、このアカウントのパスキーを使用してください。',
     },
+    passkeyDevice: {
+        kind: 'デバイス',
+        kindInternal: 'このコンピューター',
+        kindHybrid: 'スマートフォン',
+        kindSecurityKey: 'セキュリティキー',
+        sharedQuestion:
+            'このコンピューターは、複数の人が同じユーザーアカウントで使用していますか？',
+        sharedQuestionHint: '例：全員が同じ Windows ユーザーでサインインする受付 PC。',
+        sharedYes: 'はい、複数の人がこのユーザーアカウントを使用しています',
+        sharedNo: 'いいえ、ユーザーアカウントまたはデバイスは私専用です',
+        sharedUnknown: 'わかりません',
+        sharedRequired: '質問に回答してください。',
+        sharedWarning:
+            'このコンピューター上のパスキーは個人用ではありません。コンピューターの PIN を知っている人なら誰でも使用できます。ご自身のスマートフォン（QR コード）でパスキーを設定するか、セキュリティキーを使用してください。',
+        useThisDevice: 'それでもこのコンピューターを使用する',
+        sharedLabel: '共有 PC で設定',
+    },
     logout: {
         logout: 'ログアウト',
         confirmMsg: 'ログアウトしてセッションを終了しますか？',

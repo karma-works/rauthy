@@ -83,6 +83,12 @@ impl AccountType {
     pub fn may_add_password_self(&self, passkey_accounts_no_password: bool) -> bool {
         !(passkey_accounts_no_password && *self == Self::Passkey)
     }
+
+    /// `false` if removing one of `passkey_count` passkeys would leave a passkey-only account
+    /// without any way to log in. Only applies to users removing their own passkeys.
+    pub fn may_remove_own_passkey(&self, passkey_count: i64) -> bool {
+        !(*self == Self::Passkey && passkey_count <= 1)
+    }
 }
 
 impl From<AccountType> for UserAccountTypeResponse {
@@ -2192,6 +2198,16 @@ mod tests {
     use crate::entity::sessions::{Session, SessionState};
     use pretty_assertions::assert_eq;
     use std::ops::Sub;
+
+    #[test]
+    fn test_may_remove_own_passkey() {
+        assert!(!AccountType::Passkey.may_remove_own_passkey(1));
+        assert!(!AccountType::Passkey.may_remove_own_passkey(0));
+        assert!(AccountType::Passkey.may_remove_own_passkey(2));
+        // a password or federated login stays available
+        assert!(AccountType::Password.may_remove_own_passkey(1));
+        assert!(AccountType::FederatedPasskey.may_remove_own_passkey(1));
+    }
 
     #[test]
     fn test_may_add_password_self() {

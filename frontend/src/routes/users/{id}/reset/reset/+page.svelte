@@ -23,6 +23,8 @@
     import type { PasswordResetRequest } from '$api/types/password_reset.ts';
     import type { MfaPurpose } from '$api/types/mfa';
     import PasskeyTypeSelect from '$lib/PasskeyTypeSelect.svelte';
+    import SharedDeviceQuestion from '$lib/SharedDeviceQuestion.svelte';
+    import type { PasskeyHint, SharedDeviceChoice } from '$mfa/webauthn/types.ts';
 
     const inputWidth = '20rem';
 
@@ -48,6 +50,10 @@
     let passwordConfirm = $state('');
 
     let residentKey = $state(false);
+    let askSharedDevice = $state(false);
+    let sharedDevice: undefined | SharedDeviceChoice = $state();
+    let sharedHints: undefined | PasskeyHint[] = $state();
+    let showSharedRequired = $state(false);
 
     let reportValidityNew: undefined | (() => void) = $state();
     let reportValidityConfirm: undefined | (() => void) = $state();
@@ -116,6 +122,10 @@
             err = t.mfa.passkeyNameErr;
             return;
         }
+        if (askSharedDevice && !sharedDevice) {
+            showSharedRequired = true;
+            return;
+        }
 
         let res = await webauthnReg(
             tplData.user_id,
@@ -126,6 +136,7 @@
             tplData.csrf_token,
             undefined,
             residentKey,
+            { hints: sharedHints, sharedDevice: askSharedDevice ? sharedDevice : undefined },
         );
         if (res.error) {
             console.log(res.error.toLowerCase());
@@ -366,6 +377,12 @@
                         {:else if accountTypeNew === 'passkey'}
                             <div transition:slide>
                                 <Form action="" onSubmit={handleRegister}>
+                                    <SharedDeviceQuestion
+                                        bind:enabled={askSharedDevice}
+                                        bind:choice={sharedDevice}
+                                        bind:hints={sharedHints}
+                                        showRequired={showSharedRequired}
+                                    />
                                     <PasskeyTypeSelect bind:residentKey />
                                     <Input
                                         bind:ref={refPasskey}

@@ -1274,8 +1274,8 @@ pub async fn passkeys(data_before: Vec<PasskeyEntity>) -> Result<(), ErrorRespon
     let sql_2 = r#"
 INSERT INTO passkeys
 (user_id, name, passkey_user_id, passkey, credential_id, registered, last_used, user_verified,
-resident_key, aaguid)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"#;
+resident_key, aaguid, kind, shared_device_choice)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)"#;
 
     if is_hiqlite() {
         DB::hql().execute(sql_1, params!()).await?;
@@ -1293,7 +1293,9 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"#;
                         b.last_used,
                         b.user_verified,
                         b.resident_key,
-                        b.aaguid
+                        b.aaguid,
+                        b.kind,
+                        b.shared_device_choice
                     ),
                 )
                 .await?;
@@ -1314,6 +1316,8 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"#;
                     &b.user_verified,
                     &b.resident_key,
                     &b.aaguid,
+                    &b.kind,
+                    &b.shared_device_choice,
                 ],
             )
             .await?;

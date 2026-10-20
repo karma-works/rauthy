@@ -7,14 +7,19 @@ use crate::entity::webauthn::passkey::PasskeyEntity;
 use crate::entity::webauthn::{force_mds_attestation, verify_attestation};
 use crate::fido_mds::authenticator::MdsAuthenticator;
 use crate::rauthy_config::RauthyConfig;
-use rauthy_api_types::users::{WebauthnRegFinishRequest, WebauthnRegStartRequest};
+use rauthy_api_types::users::{
+    AuthenticatorAttachment, PasskeyHint, PasskeyKind, WebauthnRegFinishRequest,
+    WebauthnRegStartRequest,
+};
 use rauthy_error::{ErrorResponse, ErrorResponseType};
 use serde::{Deserialize, Serialize};
 use std::cmp::min;
 use std::str::FromStr;
 use tracing::{error, info, warn};
 use webauthn_rs::prelude::{Credential, Uuid, WebauthnError};
-use webauthn_rs_proto::{CreationChallengeResponse, ExtnState};
+use webauthn_rs_proto::{
+    AuthenticatorTransport, CreationChallengeResponse, ExtnState, PublicKeyCredentialHints,
+};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct WebauthnReg {
@@ -68,6 +73,11 @@ pub async fn reg_start(
         Ok((mut ccr, reg_state)) => {
             // timeout expected in ms
             ccr.public_key.timeout = Some(min(cfg.req_exp.as_millis(), u32::MAX as u128) as u32);
+            if let Some(hints) = &payload.hints
+                && !hints.is_empty()
+            {
+                ccr.public_key.hints = Some(hints.iter().map(|h| webauthn_hint(*h)).collect());
+            }
 
             let cache_idx = format!("reg_{:?}_{}", payload.passkey_name, user.id);
             let reg_data = WebauthnReg {
@@ -208,6 +218,10 @@ pub async fn reg_finish(
             // `user` is moved below for the very first passkey
             let notify_user = cfg.notify_passkey_added.then(|| user.clone());
             let passkey_name = payload.passkey_name.clone();
+            let kind = passkey_kind(
+                payload.authenticator_attachment,
+                payload.data.response.transports.as_deref(),
+            );
             let create_user = if user.webauthn_user_id.is_none() {
                 user.webauthn_user_id = Some(reg_data.passkey_user_id.to_string());
 
@@ -252,6 +266,8 @@ pub async fn reg_finish(
                 cred.user_verified,
                 is_rk,
                 aaguid.map(|a| a.to_vec()),
+                kind,
+                payload.shared_device,
             )
             .await?;
 
@@ -271,6 +287,41 @@ pub async fn reg_finish(
     };
 
     Ok(())
+}
+
+fn webauthn_hint(hint: PasskeyHint) -> PublicKeyCredentialHints {
+    match hint {
+        PasskeyHint::ClientDevice => PublicKeyCredentialHints::ClientDevice,
+        PasskeyHint::Hybrid => PublicKeyCredentialHints::Hybrid,
+        PasskeyHint::SecurityKey => PublicKeyCredentialHints::SecurityKey,
+    }
+}
+
+/// Derives how a passkey has been added. Both inputs are reported by the browser, so the result
+/// is only meant for display. `None` if the browser reported nothing usable.
+fn passkey_kind(
+    attachment: Option<AuthenticatorAttachment>,
+    transports: Option<&[AuthenticatorTransport]>,
+) -> Option<PasskeyKind> {
+    if attachment == Some(AuthenticatorAttachment::Platform) {
+        return Some(PasskeyKind::Internal);
+    }
+
+    let transports = transports.unwrap_or_default();
+    let has = |t: AuthenticatorTransport| transports.contains(&t);
+    if has(AuthenticatorTransport::Hybrid) {
+        // phones report `hybrid` (often together with `internal`)
+        Some(PasskeyKind::Hybrid)
+    } else if has(AuthenticatorTransport::Usb)
+        || has(AuthenticatorTransport::Nfc)
+        || has(AuthenticatorTransport::Ble)
+    {
+        Some(PasskeyKind::SecurityKey)
+    } else if has(AuthenticatorTransport::Internal) {
+        Some(PasskeyKind::Internal)
+    } else {
+        None
+    }
 }
 
 fn is_attestation_error(err: &WebauthnError) -> bool {
@@ -314,4 +365,61 @@ fn is_attestation_error(err: &WebauthnError) -> bool {
             | WebauthnError::AttestationCredentialSubjectKeyMismatch
             | WebauthnError::MissingAttestationCaList
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use AuthenticatorTransport::{Ble, Hybrid, Internal, Nfc, Usb};
+
+    #[test]
+    fn test_passkey_kind() {
+        let platform = Some(AuthenticatorAttachment::Platform);
+        let cross = Some(AuthenticatorAttachment::CrossPlatform);
+
+        // Windows Hello, Touch ID, iCloud Keychain on this device
+        assert_eq!(
+            passkey_kind(platform, Some(&[Hybrid, Internal])),
+            Some(PasskeyKind::Internal)
+        );
+        assert_eq!(passkey_kind(platform, None), Some(PasskeyKind::Internal));
+        // a smartphone via QR code
+        assert_eq!(
+            passkey_kind(cross, Some(&[Hybrid, Internal])),
+            Some(PasskeyKind::Hybrid)
+        );
+        // security keys
+        assert_eq!(
+            passkey_kind(cross, Some(&[Nfc, Usb])),
+            Some(PasskeyKind::SecurityKey)
+        );
+        assert_eq!(
+            passkey_kind(None, Some(&[Ble])),
+            Some(PasskeyKind::SecurityKey)
+        );
+        // without attachment, only `internal`
+        assert_eq!(
+            passkey_kind(None, Some(&[Internal])),
+            Some(PasskeyKind::Internal)
+        );
+        // nothing usable
+        assert_eq!(passkey_kind(cross, None), None);
+        assert_eq!(passkey_kind(None, Some(&[])), None);
+    }
+
+    #[test]
+    fn test_webauthn_hint() {
+        assert_eq!(
+            webauthn_hint(PasskeyHint::Hybrid),
+            PublicKeyCredentialHints::Hybrid
+        );
+        assert_eq!(
+            webauthn_hint(PasskeyHint::SecurityKey),
+            PublicKeyCredentialHints::SecurityKey
+        );
+        assert_eq!(
+            webauthn_hint(PasskeyHint::ClientDevice),
+            PublicKeyCredentialHints::ClientDevice
+        );
+    }
 }

@@ -29,6 +29,7 @@ impl HtmlTemplate {
                 Self::AdminButtonHide(RauthyConfig::get().vars.access.admin_button_hide),
                 None,
             )),
+            "tpl_ask_shared_device" => Ok((Self::AskSharedDevice, None)),
             "tpl_atproto_id" => {
                 if RauthyConfig::get().vars.atproto.enable {
                     let provider = AuthProvider::find_by_iss(PROVIDER_ATPROTO.to_string()).await?;

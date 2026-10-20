@@ -247,6 +247,22 @@ export const I18nZh: I18n = {
         lost: '丢失了通行密钥？请联系您的管理员。',
         wrongAccount: '无法登录。请检查电子邮件地址，并使用此账户的通行密钥。',
     },
+    passkeyDevice: {
+        kind: '设备',
+        kindInternal: '此电脑',
+        kindHybrid: '手机',
+        kindSecurityKey: '安全密钥',
+        sharedQuestion: '这台电脑是否由多人使用同一个用户账户？',
+        sharedQuestionHint: '例如前台电脑，所有人都用同一个 Windows 用户登录。',
+        sharedYes: '是，多人使用此用户账户',
+        sharedNo: '否，此用户账户或设备只属于我',
+        sharedUnknown: '不知道',
+        sharedRequired: '请回答此问题。',
+        sharedWarning:
+            '此电脑上的通行密钥不是个人专用的：任何知道电脑 PIN 的人都可以使用它。请在您自己的手机上设置通行密钥（二维码），或使用安全密钥。',
+        useThisDevice: '仍然使用此电脑',
+        sharedLabel: '在共享电脑上设置',
+    },
     logout: {
         logout: '退出登录',
         confirmMsg: '您确定要退出登录并结束会话吗？',

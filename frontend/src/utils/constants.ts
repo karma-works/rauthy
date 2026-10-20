@@ -42,6 +42,7 @@ export const EVENT_TYPES = [
 // All TPL_* values match a possibly existing `<template>` id
 // -> src/data/src/html/templates.rs -> HtmlTemplate
 export const TPL_ADMIN_BUTTON_HIDE = 'tpl_admin_btn_hide';
+export const TPL_ASK_SHARED_DEVICE = 'tpl_ask_shared_device';
 export const TPL_ATPROTO_ID = 'tpl_atproto_id';
 export const TPL_AUTH_PROVIDERS = 'tpl_auth_providers';
 export const TPL_CLIENT_NAME = 'tpl_client_name';

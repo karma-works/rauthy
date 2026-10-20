@@ -28,6 +28,8 @@
     import InputOtp from '$lib5/form/InputOtp.svelte';
     import IconCheck from '$icons/IconCheck.svelte';
     import PasskeyTypeSelect from '$lib/PasskeyTypeSelect.svelte';
+    import SharedDeviceQuestion from '$lib/SharedDeviceQuestion.svelte';
+    import type { PasskeyHint, SharedDeviceChoice } from '$mfa/webauthn/types.ts';
 
     let { user = $bindable() }: { user: UserResponse } = $props();
 
@@ -50,6 +52,10 @@
     let mfaPurpose: undefined | MfaPurpose = $state();
     let mfaKind: undefined | 'webauthn' | 'otp' = $state();
     let passkeyName = $state('');
+    let askSharedDevice = $state(false);
+    let sharedDevice: undefined | SharedDeviceChoice = $state();
+    let sharedHints: undefined | PasskeyHint[] = $state();
+    let showSharedRequired = $state(false);
     let isInputError = $state(false);
     let isLoading = $state(false);
     let testSuccess = $state(false);
@@ -166,6 +172,10 @@
             msg = t.mfa.passkeyNameErr;
             return;
         }
+        if (askSharedDevice && !sharedDevice) {
+            showSharedRequired = true;
+            return;
+        }
 
         let tokenId = mfaModToken?.id;
         if (!tokenId) {
@@ -182,6 +192,7 @@
             undefined,
             tokenId,
             residentKey,
+            { hints: sharedHints, sharedDevice: askSharedDevice ? sharedDevice : undefined },
         );
         if (res.error) {
             console.log(res.error.toLowerCase());
@@ -195,6 +206,8 @@
         } else {
             showRegInput = false;
             passkeyName = '';
+            sharedDevice = undefined;
+            showSharedRequired = false;
             await fetchPasskeys();
             await fetchUser();
         }
@@ -482,6 +495,12 @@
 
             <div class="pkReg">
                 <Form action="" onSubmit={handleRegister}>
+                    <SharedDeviceQuestion
+                        bind:enabled={askSharedDevice}
+                        bind:choice={sharedDevice}
+                        bind:hints={sharedHints}
+                        showRequired={showSharedRequired}
+                    />
                     <PasskeyTypeSelect bind:residentKey />
                     <Input
                         bind:ref={refInput}

@@ -1,9 +1,21 @@
 import { arrBufToBase64UrlSafe, base64UrlSafeToArrBuf } from './utils';
-import type { WebauthnRegFinishRequest, WebauthnRegStartRequest } from '$mfa/webauthn/types.ts';
+import type {
+    PasskeyHint,
+    SharedDeviceChoice,
+    WebauthnRegFinishRequest,
+    WebauthnRegStartRequest,
+} from '$mfa/webauthn/types.ts';
 import { getCsrfToken, promiseTimeout } from '$utils/helpers';
 
 export interface WebauthnRegResult {
     error?: string;
+}
+
+export interface WebauthnRegOptions {
+    /** asks the browser to offer these authenticators first */
+    hints?: PasskeyHint[];
+    /** the answer to the "shared computer" question, if it was asked */
+    sharedDevice?: SharedDeviceChoice;
 }
 
 export async function webauthnReg(
@@ -15,12 +27,14 @@ export async function webauthnReg(
     pwdCsrfToken?: string,
     mfaModTokenId?: string,
     allowRk?: boolean,
+    regOptions?: WebauthnRegOptions,
 ): Promise<WebauthnRegResult> {
     let payloadStart: WebauthnRegStartRequest = {
         passkey_name: passkeyName,
         magic_link_id: magicLinkId,
         mfa_mod_token_id: mfaModTokenId,
         allow_rk: allowRk,
+        hints: regOptions?.hints,
     };
     let headers: HeadersInit = {
         'Content-Type': 'application/json',
@@ -101,12 +115,18 @@ export async function webauthnReg(
                 attestationObject: arrBufToBase64UrlSafe(credential.response.attestationObject),
                 // @ts-ignore the `response.clientDataJSON` actually exists
                 clientDataJSON: arrBufToBase64UrlSafe(credential.response.clientDataJSON),
+                // only used to show how the passkey was added
+                // @ts-ignore the `response.getTransports()` actually exists
+                transports: credential.response.getTransports?.() ?? undefined,
             },
             // @ts-ignore the `response.getClientExtensionResults()` actually exists
             extensions: credential.getClientExtensionResults(),
             type: credential.type,
         },
         magic_link_id: magicLinkId,
+        // @ts-ignore the `authenticatorAttachment` exists in all current browsers
+        authenticator_attachment: credential.authenticatorAttachment ?? undefined,
+        shared_device: regOptions?.sharedDevice,
     };
 
     let resFinish = await fetch(`/auth/v1/users/${userId}/webauthn/register/finish`, {

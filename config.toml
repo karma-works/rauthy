@@ -3188,6 +3188,18 @@ renew_exp = '90d'
 # overwritten by: WEBAUTHN_NOTIFY_PASSKEY_ADDED
 #notify_passkey_added = false
 
+# If set to `true`, the account page and the account setup ask before
+# each passkey registration whether this computer is used by several
+# people with the same account (e.g. a reception PC). With "yes" or
+# "don't know", a warning explains that a passkey on such a computer is
+# not personal, and the browser is asked to offer a smartphone (QR code)
+# or a security key first. The answer is stored with the passkey and
+# shown next to it.
+#
+# default: false
+# overwritten by: WEBAUTHN_ASK_SHARED_DEVICE
+#ask_shared_device = false
+
 # When you want to migrate an existing deployment over to enforced
 # attestation, you usually have a chicken-and-egg problem: You
 # have users that already use Passkeys. Device attestation only

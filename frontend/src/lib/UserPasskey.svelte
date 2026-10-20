@@ -19,6 +19,26 @@
     } = $props();
 
     let t = useI18n();
+
+    let kindLabel = $derived.by(() => {
+        switch (passkey.kind) {
+            case 'internal':
+                return t.passkeyDevice.kindInternal;
+            case 'hybrid':
+                return t.passkeyDevice.kindHybrid;
+            case 'security_key':
+                return t.passkeyDevice.kindSecurityKey;
+            default:
+                return '';
+        }
+    });
+    // A passkey from a smartphone or a security key is personal, even if it was added on a shared
+    // computer.
+    let onSharedPc = $derived(
+        (passkey.shared_device === 'yes' || passkey.shared_device === 'unknown') &&
+            passkey.kind !== 'hybrid' &&
+            passkey.kind !== 'security_key',
+    );
 </script>
 
 <div class="keyContainer">
@@ -52,6 +72,20 @@
             {/if}
         </div>
     </div>
+    {#if kindLabel}
+        <div class="row">
+            <span class="label">
+                {t.passkeyDevice.kind}
+            </span>
+            <span>{kindLabel}</span>
+        </div>
+    {/if}
+    {#if onSharedPc}
+        <div class="row">
+            <div></div>
+            <span class="shared">{t.passkeyDevice.sharedLabel}</span>
+        </div>
+    {/if}
     <div class="row">
         <span class="label">
             {t.mfa.registered}
@@ -89,6 +123,11 @@
 
     .label {
         color: hsla(var(--text) / 0.7);
+    }
+
+    .shared {
+        color: hsl(var(--error));
+        font-size: 0.9rem;
     }
 
     .nameUv {
