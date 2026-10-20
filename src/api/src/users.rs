@@ -8,6 +8,7 @@ use chrono::Utc;
 use rauthy_api_types::PatchOp;
 use rauthy_api_types::generic::{PaginationParams, PasswordPolicyResponse};
 use rauthy_api_types::oidc::PasswordResetResponse;
+use rauthy_api_types::sessions::{UserSessionResponse, UserSessionsDeleteRequest};
 use rauthy_api_types::users::*;
 use rauthy_common::constants::{
     COOKIE_MFA, HEADER_ALLOW_ALL_ORIGINS, HEADER_HTML, HEADER_JSON, PWD_CSRF_HEADER,
@@ -25,6 +26,7 @@ use rauthy_data::entity::continuation_token::ContinuationToken;
 use rauthy_data::entity::devices::DeviceEntity;
 use rauthy_data::entity::email_rate_limit::EmailRateLimit;
 use rauthy_data::entity::groups::Group;
+use rauthy_data::entity::issued_tokens::IssuedToken;
 use rauthy_data::entity::login_locations::LoginLocation;
 use rauthy_data::entity::mfa_mod_token::MfaModToken;
 use rauthy_data::entity::one_time_password::{
@@ -1976,6 +1978,99 @@ pub async fn post_webauthn_auth_finish_login(
             }
         })?;
     Ok(res.into_response())
+}
+
+/// The user's own sessions
+///
+/// Lists the not yet expired, logged in sessions of the user with a coarse device label. It
+/// contains no session IDs and no IP addresses.
+///
+/// **Permissions**
+/// - authenticated and logged in user for this very {id}
+#[utoipa::path(
+    get,
+    path = "/users/{id}/sessions",
+    tag = "users",
+    responses(
+        (status = 200, description = "Ok", body = [UserSessionResponse]),
+        (status = 401, description = "Unauthorized", body = ErrorResponse),
+        (status = 403, description = "Forbidden", body = ErrorResponse),
+    ),
+)]
+#[get("/users/{id}/sessions")]
+pub async fn get_user_sessions(
+    path: web::Path<String>,
+    principal: ReqPrincipal,
+) -> Result<HttpResponse, ErrorResponse> {
+    principal.validate_session_auth()?;
+    let id = path.into_inner();
+    principal.is_user(&id)?;
+    let current = principal.get_session()?.id.clone();
+
+    let sessions = Session::find_auth_for_user(&id)
+        .await?
+        .into_iter()
+        .map(|s| UserSessionResponse {
+            current: s.id == current,
+            device: s.device,
+            is_mfa: s.is_mfa,
+            last_seen: s.last_seen,
+            exp: s.exp,
+        })
+        .collect::<Vec<_>>();
+
+    Ok(HttpResponse::Ok().json(sessions))
+}
+
+/// Log out everywhere else
+///
+/// Ends all other sessions of the user, together with their refresh tokens, and executes a
+/// backchannel logout for them. The session of this request stays valid. Needs a fresh
+/// `MfaModToken`.
+///
+/// **Permissions**
+/// - authenticated and logged in user for this very {id}
+#[utoipa::path(
+    delete,
+    path = "/users/{id}/sessions",
+    tag = "users",
+    request_body = UserSessionsDeleteRequest,
+    responses(
+        (status = 200, description = "Ok"),
+        (status = 400, description = "BadRequest", body = ErrorResponse),
+        (status = 401, description = "Unauthorized", body = ErrorResponse),
+        (status = 403, description = "Forbidden", body = ErrorResponse),
+    ),
+)]
+#[delete("/users/{id}/sessions")]
+pub async fn delete_user_sessions(
+    path: web::Path<String>,
+    principal: ReqPrincipal,
+    req: HttpRequest,
+    Json(payload): Json<UserSessionsDeleteRequest>,
+) -> Result<HttpResponse, ErrorResponse> {
+    principal.validate_session_auth()?;
+    payload.validate()?;
+    let id = path.into_inner();
+    principal.is_user(&id)?;
+
+    let token = MfaModToken::find(&payload.mfa_mod_token_id).await?;
+    token.validate(&id, real_ip_from_req(&req)?)?;
+
+    let current = principal.get_session()?.id.clone();
+    let sids = Session::invalidate_for_user_except(&id, &current).await?;
+    for sid in sids {
+        RefreshToken::delete_by_sid(sid.clone()).await?;
+        IssuedToken::revoke_for_session(&sid, true).await?;
+        // without a `uid`, a session without login states does not log out the whole user,
+        // which would include the current session
+        if let Err(err) = logout::execute_backchannel_logout(Some(sid), None).await {
+            error!("Backchannel logout for an own session: {err:?}");
+        }
+    }
+    info!("User {id} ended all other sessions");
+
+    Ok(HttpResponse::Ok().finish())
 }
 
 /// Deletes the WebAuthn Device for this user in the given slot

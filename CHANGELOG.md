@@ -4,6 +4,21 @@
 
 ### Changes
 
+#### Own Sessions
+
+Users can list and end their own sessions through the API, for apps that build their own account
+page:
+
+- `GET /users/{id}/sessions` lists the logged-in, not expired sessions with `current`, a coarse
+  `device` label like `Chrome · Windows`, `is_mfa`, `last_seen` and `exp`. It contains no session
+  IDs and no IP addresses.
+- `DELETE /users/{id}/sessions` with a fresh `mfa_mod_token_id` ends all other sessions together
+  with their refresh tokens and issued tokens, and executes a backchannel logout for each of them.
+  The session of the request stays valid.
+
+The `device` label is derived from the `User-Agent` when a session is created and stored in the
+new column `sessions.device` (migrations `V36` / `41`). The full `User-Agent` is not stored.
+
 #### Split Login Page
 
 A new, optional `access.login_layout` (`LOGIN_LAYOUT`) shows the login page for clients with

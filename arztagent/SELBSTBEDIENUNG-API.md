@@ -126,6 +126,14 @@ anmelden lassen.
 - Nicht geprüft: Verhalten mit `session_renew_mfa = true`, Rate-Limits/Blacklist auf diesen
   Pfaden, und ob der OIDC-Login der App immer dieselbe Rauthy-Sitzung wiederverwendet.
 
-## Eigene Sitzungen (A2.4, folgt)
+## Eigene Sitzungen (A2.4)
 
-Die Endpunkte zum Anzeigen und Beenden eigener Sitzungen folgen in einem späteren PR.
+- `GET /users/{id}/sessions` (nur die eigene `{id}`, sonst 403) → 200, Liste der angemeldeten,
+  nicht abgelaufenen Sitzungen, zuletzt benutzte zuerst: `current`, `device?` (grob, z. B.
+  „Chrome · Windows“, beim Anlegen der Sitzung aus dem User-Agent), `is_mfa`, `last_seen`, `exp`.
+  Ohne Sitzungs-ID und ohne IP-Adresse.
+- `DELETE /users/{id}/sessions` mit Body `{"mfa_mod_token_id": …}` und CSRF → 200. Beendet alle
+  anderen Sitzungen samt ihrer Refresh-Tokens und ausgegebenen Tokens; Backchannel-Logout je
+  Sitzung. Die Sitzung der Anfrage bleibt. Ohne CSRF 401, ohne Token 400, unbekannter Token 401,
+  fremde `{id}` 403.
+- Sitzungen von vor diesem Update haben kein `device`.
