@@ -230,12 +230,14 @@ pub async fn get_authorize(
                     RauthyConfig::get().vars.lifetimes.session_lifetime,
                     Some(real_ip_from_req(&req)?),
                 )
+                .with_device_from_req(&req)
             }
         } else {
             Session::new(
                 RauthyConfig::get().vars.lifetimes.session_lifetime,
                 Some(real_ip_from_req(&req)?),
             )
+            .with_device_from_req(&req)
         };
 
         if let Err(err) = session.upsert().await {
@@ -883,7 +885,8 @@ pub async fn post_session(
     let session = Session::new(
         RauthyConfig::get().vars.lifetimes.session_lifetime,
         real_ip_from_req(&req).ok(),
-    );
+    )
+    .with_device_from_req(&req);
     session.upsert().await?;
     let cookie = session.client_cookie();
 
