@@ -47,6 +47,10 @@ pub struct Session {
     #[serde(default)]
     #[column(parse)]
     pub mfa_method: MfaMethod,
+    /// A coarse "Browser · OS" label, see `device_label()`. Appended last for cache
+    /// compatibility, like `mfa_method`.
+    #[serde(default)]
+    pub device: Option<String>,
 }
 
 /// The MFA method actually verified for this session.
@@ -110,7 +114,8 @@ impl Debug for Session {
         write!(
             f,
             "Session {{ id: {}(...), csrf_token: {}(...), user_id: {:?}, roles: {:?}, groups: {:?}, \
-        is_mfa: {}, mfa_method: {}, state: {}, exp: {}, last_seen: {}, remote_ip: {:?} }}",
+        is_mfa: {}, mfa_method: {}, state: {}, exp: {}, last_seen: {}, remote_ip: {:?}, \
+        device: {:?} }}",
             &self.id[..5],
             &self.csrf_token[..5],
             self.user_id,
@@ -121,7 +126,8 @@ impl Debug for Session {
             self.state.as_str(),
             self.exp,
             self.last_seen,
-            self.remote_ip
+            self.remote_ip,
+            self.device,
         )
     }
 }
@@ -401,6 +407,49 @@ OFFSET $3"#;
         Ok(())
     }
 
+    /// All not yet expired, authenticated sessions of a user, the most recently used first.
+    pub async fn find_auth_for_user(uid: &str) -> Result<Vec<Self>, ErrorResponse> {
+        let now = Utc::now().timestamp();
+        let sql = "SELECT * FROM sessions WHERE user_id = $1 AND state = $2 AND exp > $3 \
+            ORDER BY last_seen DESC";
+        let state = SessionState::Auth.as_str();
+        let res = if is_hiqlite() {
+            DB::hql().query_map(sql, params!(uid, state, now)).await?
+        } else {
+            DB::pg_query(sql, &[&uid, &state, &now], 2).await?
+        };
+        Ok(res)
+    }
+
+    /// Deletes all sessions of a user except `keep_sid`. Returns `Vec<SessionId>` of the deleted
+    /// ones. Tokens bound to them must be handled by the caller.
+    pub async fn invalidate_for_user_except(
+        uid: &str,
+        keep_sid: &str,
+    ) -> Result<Vec<String>, ErrorResponse> {
+        let sql = "DELETE FROM sessions WHERE user_id = $1 AND id != $2 RETURNING id";
+        let sids: Vec<String> = if is_hiqlite() {
+            let rows = DB::hql()
+                .execute_returning(sql, params!(uid, keep_sid))
+                .await?;
+            let mut ids = Vec::with_capacity(rows.len());
+            for row in rows {
+                ids.push(row?.get("id"));
+            }
+            ids
+        } else {
+            let rows = DB::pg_query_rows(sql, &[&uid, &keep_sid], 1).await?;
+            rows.into_iter().map(|row| row.get("id")).collect()
+        };
+
+        let client = DB::hql();
+        for sid in &sids {
+            client.delete(Cache::Session, sid.clone()).await?;
+        }
+
+        Ok(sids)
+    }
+
     /// Returns `Vec<SessionId>`
     pub async fn invalidate_for_user(uid: &str) -> Result<Vec<String>, ErrorResponse> {
         let sql = "DELETE FROM sessions WHERE user_id = $1 RETURNING id";
@@ -444,12 +493,12 @@ OFFSET $3"#;
         let sql = r#"
 INSERT INTO
 sessions (id, csrf_token, user_id, roles, groups, is_mfa, state, exp, last_seen, remote_ip,
-    mfa_method)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+    mfa_method, device)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 ON CONFLICT(id) DO UPDATE
 SET user_id = $3, roles = $4, groups = $5, is_mfa = $6, state = $7, exp = $8, last_seen = $9,
-    remote_ip = $10, mfa_method = $11
-WHERE sessions.exp > $12"#;
+    remote_ip = $10, mfa_method = $11, device = $12
+WHERE sessions.exp > $13"#;
 
         let rows_affected = if is_hiqlite() {
             DB::hql()
@@ -467,6 +516,7 @@ WHERE sessions.exp > $12"#;
                         self.last_seen,
                         &self.remote_ip,
                         self.mfa_method.as_str(),
+                        &self.device,
                         now
                     ),
                 )
@@ -486,6 +536,7 @@ WHERE sessions.exp > $12"#;
                     &self.last_seen,
                     &self.remote_ip,
                     &self.mfa_method.as_str(),
+                    &self.device,
                     &now,
                 ],
             )
@@ -640,7 +691,18 @@ impl Session {
             last_seen: now.timestamp(),
             remote_ip: remote_ip.map(|ip| ip.to_string()),
             mfa_method: MfaMethod::None,
+            device: None,
         }
+    }
+
+    /// Sets the coarse `device` label from the request's `User-Agent`.
+    pub fn with_device_from_req(mut self, req: &HttpRequest) -> Self {
+        self.device = req
+            .headers()
+            .get(actix_web::http::header::USER_AGENT)
+            .and_then(|v| v.to_str().ok())
+            .and_then(device_label);
+        self
     }
 
     /// exp_in will be the time in seconds when the session will expire
@@ -687,6 +749,7 @@ impl Session {
             last_seen: now.timestamp(),
             remote_ip,
             mfa_method: MfaMethod::None,
+            device: None,
         })
     }
 
@@ -938,9 +1001,52 @@ pub fn get_header_value<'a>(
     Ok(res)
 }
 
+/// A coarse "Browser · OS" label from a `User-Agent`, for the user's own session list. It keeps
+/// no version numbers or other details. `None` if neither the browser nor the OS is known.
+pub fn device_label(user_agent: &str) -> Option<String> {
+    let ua = user_agent;
+    // order matters: Edge and Opera also contain "Chrome", Chrome also contains "Safari"
+    let browser = if ua.contains("Edg/") || ua.contains("EdgA/") || ua.contains("EdgiOS/") {
+        Some("Edge")
+    } else if ua.contains("OPR/") {
+        Some("Opera")
+    } else if ua.contains("Firefox/") || ua.contains("FxiOS/") {
+        Some("Firefox")
+    } else if ua.contains("Chrome/") || ua.contains("CriOS/") {
+        Some("Chrome")
+    } else if ua.contains("Safari/") {
+        Some("Safari")
+    } else {
+        None
+    };
+    let os = if ua.contains("iPhone") {
+        Some("iOS")
+    } else if ua.contains("iPad") {
+        Some("iPadOS")
+    } else if ua.contains("Android") {
+        Some("Android")
+    } else if ua.contains("Windows") {
+        Some("Windows")
+    } else if ua.contains("Mac OS X") || ua.contains("Macintosh") {
+        Some("macOS")
+    } else if ua.contains("CrOS") {
+        Some("ChromeOS")
+    } else if ua.contains("Linux") {
+        Some("Linux")
+    } else {
+        None
+    };
+
+    match (browser, os) {
+        (Some(b), Some(o)) => Some(format!("{b} · {o}")),
+        (Some(v), None) | (None, Some(v)) => Some(v.to_string()),
+        (None, None) => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::entity::sessions::{MfaMethod, Session, SessionState};
+    use crate::entity::sessions::{MfaMethod, Session, SessionState, device_label};
     use crate::entity::users::User;
     use actix_web::test::TestRequest;
     use rauthy_common::constants::CSRF_HEADER;
@@ -1050,6 +1156,83 @@ mod tests {
         assert_eq!(s.last_seen, 100);
         assert_eq!(s.remote_ip.as_deref(), Some("127.0.0.1"));
         assert_eq!(s.mfa_method, MfaMethod::None);
+    }
+
+    #[test]
+    fn test_device_label() {
+        let cases = [
+            (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) \
+                 Chrome/141.0.0.0 Safari/537.36",
+                Some("Chrome · Windows"),
+            ),
+            (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) \
+                 Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0",
+                Some("Edge · Windows"),
+            ),
+            (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 \
+                 (KHTML, like Gecko) Version/26.0 Safari/605.1.15",
+                Some("Safari · macOS"),
+            ),
+            (
+                "Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X) AppleWebKit/605.1.15 \
+                 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1",
+                Some("Safari · iOS"),
+            ),
+            (
+                "Mozilla/5.0 (Linux; Android 16; Pixel 9) AppleWebKit/537.36 \
+                 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36",
+                Some("Chrome · Android"),
+            ),
+            (
+                "Mozilla/5.0 (X11; Linux x86_64; rv:144.0) Gecko/20100101 Firefox/144.0",
+                Some("Firefox · Linux"),
+            ),
+            ("curl/8.5.0", None),
+            ("", None),
+        ];
+        for (ua, expected) in cases {
+            assert_eq!(device_label(ua).as_deref(), expected, "{ua}");
+        }
+    }
+
+    #[test]
+    fn session_cache_without_device_decodes() {
+        // Sessions cached before `device` existed must still decode.
+        #[derive(Debug, Serialize)]
+        struct PrevSession {
+            id: String,
+            csrf_token: String,
+            user_id: Option<String>,
+            roles: Option<String>,
+            groups: Option<String>,
+            is_mfa: bool,
+            state: SessionState,
+            exp: i64,
+            last_seen: i64,
+            remote_ip: Option<String>,
+            mfa_method: MfaMethod,
+        }
+
+        let prev = PrevSession {
+            id: "session".into(),
+            csrf_token: "csrf".into(),
+            user_id: Some("user".into()),
+            roles: None,
+            groups: None,
+            is_mfa: true,
+            state: SessionState::Auth,
+            exp: 123,
+            last_seen: 100,
+            remote_ip: None,
+            mfa_method: MfaMethod::WebAuthn,
+        };
+        let bytes = serialize(&prev).unwrap();
+        let s = deserialize::<Session>(&bytes).unwrap();
+        assert_eq!(s.mfa_method, MfaMethod::WebAuthn);
+        assert_eq!(s.device, None);
     }
 
     #[test]
