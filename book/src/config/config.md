@@ -3164,10 +3164,11 @@ rp_origin = 'http://localhost:8080'
 # public page `/auth/v1/users/recover` sends a confirmation code to the
 # account's E-Mail, which must be entered in the same browser. Only then
 # a new passkey can be registered; all existing sessions are ended.
-# The responses never reveal whether an account exists. After 5 failed
-# attempts within 24 hours, redeeming is locked for the account (it
-# unlocks on its own, an admin can unlock early). The account setup
-# shows the codes once after the first passkey.
+# The responses never reveal whether an account exists. After 20 failed
+# attempts within 24 hours from one IP (IPv6: one /64), redeeming is
+# blocked from there; it unlocks on its own. 5 failed attempts for one
+# account send a warning E-Mail, but never block the account. The
+# account setup shows the codes once after the first passkey.
 #
 # default: false
 # overwritten by: WEBAUTHN_RECOVERY_CODES

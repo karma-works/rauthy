@@ -150,8 +150,8 @@ Nur mit `WEBAUTHN_RECOVERY_CODES=true`, sonst 404.
 - Anzeigen: `GET /users/{id}/recovery_codes` → `{remaining, created?}` (eigene Person oder
   API-Key mit `Users` + `Read`; die Team-Seite zeigt „Codes vorhanden ja/nein“).
 - Zurücksetzen durch die Praxis: `DELETE /users/{id}/recovery_codes` (API-Key `Users` +
-  `Delete`) löscht Codes und hebt eine Sperre auf. Löscht ein Admin einen Passkey, verschwinden
-  die Codes automatisch mit.
+  `Delete`) löscht Codes und bricht eine laufende Wiederherstellung ab. Löscht ein Admin einen
+  Passkey, passiert das automatisch.
 - Einlösen läuft nur über Rauthys Seite `/users/recover` (E-Mail + Code → Bestätigungscode per
   Mail → neuer Passkey im selben Browser). Danach sind alle Sitzungen der Person beendet; die App
   muss neu anmelden. Die Einrichtungsseite zeigt die Codes einmal nach dem ersten Passkey.

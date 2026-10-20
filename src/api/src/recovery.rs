@@ -14,7 +14,7 @@ use rauthy_common::constants::PWD_RESET_COOKIE;
 use rauthy_common::utils::{get_rand, real_ip_from_req};
 use rauthy_data::api_cookie::ApiCookie;
 use rauthy_data::email::notification::{
-    send_email_recovery_codes_regenerated, send_email_recovery_locked,
+    send_email_recovery_codes_regenerated, send_email_recovery_failures,
     send_email_recovery_mail_code,
 };
 use rauthy_data::entity::api_keys::{AccessGroup, AccessRights};
@@ -31,7 +31,7 @@ use rauthy_error::{ErrorResponse, ErrorResponseType};
 use spow::pow::Pow;
 use std::time::Duration;
 use tokio::time::{Instant, sleep_until};
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 use validator::Validate;
 
 /// `POST /users/recover/start` always takes at least this long, so that the response time does not
@@ -105,8 +105,9 @@ pub async fn post_recovery_codes(
     token.delete().await?;
 
     let codes = RecoveryCodes::generate(&id).await?;
-    // a new set also voids a recovery that is just in progress
-    MagicLink::delete_all_credential_links_for_user(&id).await?;
+    // a new set also ends a recovery that is just in progress
+    RecoveryChallenge::cancel_for_user(&id).await?;
+    MagicLink::delete_recovery_links_for_user(&id).await?;
 
     info!(user.id, "New recovery codes created");
     Event::recovery_codes_regenerated(user.email.clone(), Some(ip.to_string()))
@@ -191,15 +192,16 @@ pub async fn delete_recovery_codes(
 /// Removes codes, a recovery in progress and the lock, e.g. when an admin resets passkeys.
 pub async fn purge_for_user(user: &User) -> Result<(), ErrorResponse> {
     RecoveryCodes::delete_for_user(&user.id).await?;
-    MagicLink::delete_all_credential_links_for_user(&user.id).await?;
+    RecoveryChallenge::cancel_for_user(&user.id).await?;
+    MagicLink::delete_recovery_links_for_user(&user.id).await?;
     RecoveryLock::clear(&user.email).await?;
     Ok(())
 }
 
 /// Redeems a recovery code
 ///
-/// Always returns the same response, no matter if the account exists, the code is valid or
-/// redeeming is locked, and always takes the same time. If the code is valid, a confirmation code
+/// Always returns the same response, no matter if the account exists, the code is valid or the
+/// IP is blocked after too many failures, and always takes the same time. If the code is valid, a confirmation code
 /// is sent to the account's E-Mail, see `POST /users/recover/verify`.
 #[utoipa::path(
     post,
@@ -226,19 +228,30 @@ pub async fn post_recover_start(
     let res = RecoveryChallenge::start(&payload.email, &payload.code, &ip).await;
     let resp = match res {
         Ok(start) => {
-            if let Some((user, mail_code)) = &start.mail {
+            // Mails and events run in the background: a slow mail queue must not make the
+            // response of existing accounts take longer.
+            if let Some((user, mail_code)) = start.mail {
                 info!(
                     user.id,
                     "Recovery code redeemed, sending the confirmation code"
                 );
-                send_email_recovery_mail_code(user, mail_code, MAIL_CODE_LIFETIME_SECS / 60).await;
+                tokio::spawn(async move {
+                    send_email_recovery_mail_code(&user, &mail_code, MAIL_CODE_LIFETIME_SECS / 60)
+                        .await;
+                });
             }
-            if let Some(user) = &start.locked_now {
-                warn!(user.id, "Recovery locked after too many failed attempts");
-                Event::recovery_code_failed(user.email.clone(), Some(ip.clone()))
-                    .send()
-                    .await?;
-                send_email_recovery_locked(user).await;
+            if let Some(user) = start.warn_user {
+                warn!(user.id, "Repeated invalid recovery codes for an account");
+                let ip = ip.clone();
+                tokio::spawn(async move {
+                    if let Err(err) = Event::recovery_code_failed(user.email.clone(), Some(ip))
+                        .send()
+                        .await
+                    {
+                        error!(?err, "Sending the RecoveryCodeFailed event");
+                    }
+                    send_email_recovery_failures(&user).await;
+                });
             }
             Ok(
                 no_store(&mut HttpResponse::Ok()).json(RecoverStartResponse {
@@ -280,7 +293,7 @@ pub async fn post_recover_verify(
     let user_id = RecoveryChallenge::verify(&payload.challenge_id, &payload.mail_code).await?;
 
     // only one recovery link at a time
-    MagicLink::delete_all_credential_links_for_user(&user_id).await?;
+    MagicLink::delete_recovery_links_for_user(&user_id).await?;
     let mut ml = MagicLink::create(
         user_id.clone(),
         RECOVERY_LINK_LIFETIME,

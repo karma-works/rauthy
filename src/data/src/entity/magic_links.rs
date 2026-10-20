@@ -204,6 +204,18 @@ VALUES ($1, $2, $3, $4, $5, $6)"#;
         Ok(())
     }
 
+    /// Ends a recovery in progress without touching other links.
+    pub async fn delete_recovery_links_for_user(user_id: &str) -> Result<(), ErrorResponse> {
+        let sql = "DELETE FROM magic_links WHERE user_id = $1 AND usage LIKE 'passkey_recovery%'";
+        if is_hiqlite() {
+            DB::hql().execute(sql, params!(user_id)).await?;
+        } else {
+            DB::pg_execute(sql, &[&user_id]).await?;
+        };
+
+        Ok(())
+    }
+
     pub async fn delete_all_pwd_reset_for_user(user_id: String) -> Result<(), ErrorResponse> {
         let sql = "DELETE FROM magic_links WHERE user_id = $1 AND usage LIKE 'password_reset%'";
         if is_hiqlite() {

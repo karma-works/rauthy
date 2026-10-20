@@ -273,7 +273,7 @@ export const I18nNl: I18n = {
         invalidMailCode: 'The code is invalid or has expired.',
         restart: 'Start over',
         newPasskey: 'Now set up a new passkey.',
-        done: 'Your new passkey is set up. All previous sign-ins have been ended. Sign in again now and remove the lost passkey in your account.',
+        done: 'Your new passkey is set up. All previous sign-ins have been ended. Sign in again now, remove the lost passkey in your account and create new recovery codes.',
         toAccount: 'To my account',
         noCodes: 'No codes at hand? Contact your administrator.',
     },

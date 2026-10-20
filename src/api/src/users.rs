@@ -2145,10 +2145,9 @@ pub async fn delete_webauthn(
     PasskeyEntity::delete(id, name.clone()).await?;
 
     if let Some(user) = notify_user {
-        // A reset by an admin must not leave a way back in for whoever holds the old codes.
-        if RauthyConfig::get().vars.webauthn.recovery_codes {
-            crate::recovery::purge_for_user(&user).await?;
-        }
+        // A reset by an admin must not leave a way back in for whoever holds the old codes,
+        // also not after the feature has been switched off and on again.
+        crate::recovery::purge_for_user(&user).await?;
         send_email_passkey_removed(&user, &name).await;
     }
 

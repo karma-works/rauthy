@@ -116,9 +116,9 @@ pub async fn send_email_recovery_codes_regenerated(user: &User) {
     send_email_passkey_notification(user, &notification).await;
 }
 
-/// Sent once when redeeming gets locked for the account.
-pub async fn send_email_recovery_locked(user: &User) {
-    let notification = recovery_notification(I18nRecoveryNotification::locked(&user.language));
+/// Sent once when invalid recovery codes have been entered repeatedly for the account.
+pub async fn send_email_recovery_failures(user: &User) {
+    let notification = recovery_notification(I18nRecoveryNotification::failures(&user.language));
     send_email_passkey_notification(user, &notification).await;
 }
 

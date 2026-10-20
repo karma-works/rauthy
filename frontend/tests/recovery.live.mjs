@@ -172,9 +172,11 @@ async function redeem(code, email = USER.email) {
     await page.locator('#recover-email').fill(email);
     await page.locator('#recover-code').fill(code);
     const started = Date.now();
+    const response = page.waitForResponse(r => r.url().endsWith('/users/recover/start'));
     await page.getByRole('button', { name: 'Continue' }).click();
+    const challengeId = (await (await response).json()).challenge_id;
     await page.getByText('If the email address and the code are correct').waitFor();
-    return { page, context, took: Date.now() - started };
+    return { page, context, took: Date.now() - started, challengeId };
 }
 
 test('recovery codes: create, redeem, register a new passkey', async t => {
@@ -298,20 +300,48 @@ test('recovery codes: create, redeem, register a new passkey', async t => {
     const fresh = (await mails(USER.email)).length;
     assert.ok(fresh <= mailsAfter + 1, `${fresh} vs ${mailsAfter}`);
 
-    // --- 5 failures lock redeeming for 24 h, even with a valid code, with one mail
+    // --- 5 failures send one warning, but never block a valid code of the owner
     for (let i = 0; i < 5; i++) {
         const r = await redeem('ZZZZ-ZZZZ-ZZZZ');
         await r.context.close();
     }
-    const locked = await waitForMail(USER.email, fresh + 1);
-    assert.match(await mailText(locked[0].ID), /locked/i);
-    const lockedCount = (await mails(USER.email)).length;
-    const blocked = await redeem(codes[1]);
-    await blocked.context.close();
-    await new Promise(r => setTimeout(r, 1000));
-    assert.equal((await mails(USER.email)).length, lockedCount, 'locked: no confirmation mail');
+    const warned = await waitForMail(USER.email, fresh + 1);
+    assert.match(await mailText(warned[0].ID), /Invalid recovery codes have been entered/);
+    const warnedCount = (await mails(USER.email)).length;
+    const second = await redeem(codes[1]);
+    t.after(() => second.context.close());
+    const withCode = await waitForMail(USER.email, warnedCount + 1);
+    const secondCode = (await mailText(withCode[0].ID)).match(/confirmation code is (\d{8})/)[1];
 
-    // --- an admin unlocks and deletes the codes
+    // parallel guesses of the mail code use up its 3 attempts, the right code is too late then
+    const challengeId = second.challengeId;
+    {
+        const statuses = await second.page.evaluate(
+            id =>
+                Promise.all(
+                    Array.from({ length: 6 }, (_, i) =>
+                        fetch('/auth/v1/users/recover/verify', {
+                            method: 'POST',
+                            headers: { 'content-type': 'application/json' },
+                            body: JSON.stringify({ challenge_id: id, mail_code: `1234567${i}` }),
+                        }).then(async r => [r.status, (await r.json()).message]),
+                    ),
+                ),
+            challengeId,
+        );
+        assert.ok(
+            statuses.every(([status, msg]) => status === 400 && /invalid or has expired/.test(msg)),
+            JSON.stringify(statuses),
+        );
+        await second.page.locator('#recover-mail-code').fill(secondCode);
+        await second.page.getByRole('button', { name: 'Confirm' }).click();
+        await second.page
+            .getByRole('alert')
+            .filter({ hasText: 'invalid or has expired' })
+            .waitFor();
+    }
+
+    // --- an admin deletes the codes
     res = await api(admin, 'DELETE', `/users/${uid}/recovery_codes`);
     assert.equal(res.status, 200, res.text);
     res = await api(admin, 'GET', `/users/${uid}/recovery_codes`);

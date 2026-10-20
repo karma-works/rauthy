@@ -6,9 +6,9 @@
 //! - Redeeming is a public, two-step flow: E-Mail + code (`RecoveryChallenge::start`), then a
 //!   code sent by E-Mail, entered in the same browser (`RecoveryChallenge::verify`). Only then a
 //!   `MagicLinkUsage::PasskeyRecovery` link allows to register a new passkey.
-//! - `RecoveryLock` limits failed attempts per account (sliding 24 h window, unlocks on its own)
-//!   and per IP. Neither the response nor its timing reveals whether an account exists, a code
-//!   was valid or the account is locked.
+//! - `RecoveryLock` blocks an IP after too many failed attempts (sliding 24 h window) and warns
+//!   the account owner. Neither the response nor its timing reveals whether an account exists or
+//!   a code was valid.
 
 use crate::database::{Cache, DB};
 use crate::entity::users::User;
@@ -20,16 +20,18 @@ use rauthy_common::utils::{get_rand, get_rand_between};
 use rauthy_error::{ErrorResponse, ErrorResponseType};
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
+use std::net::IpAddr;
 
 /// Crockford Base32: no I, L, O, U
 const ALPHABET: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 pub const CODES_COUNT: usize = 10;
 const CODE_LEN: usize = 12;
 
-/// Failed redeem attempts per account in `LOCK_WINDOW_SECS` before redeeming is locked
-pub const LOCK_MAX_FAILURES: usize = 5;
+/// Failed redeem attempts per account in `LOCK_WINDOW_SECS` before the user gets a warning
+pub const WARN_FAILURES_ACCOUNT: usize = 5;
 const LOCK_WINDOW_SECS: i64 = 24 * 3600;
-/// Failed redeem attempts per IP (any account) in `LOCK_WINDOW_SECS`
+/// Failed redeem attempts per IP (IPv6 per /64, any account) in `LOCK_WINDOW_SECS` before
+/// redeeming from there is blocked
 const LOCK_MAX_FAILURES_IP: usize = 20;
 /// Code generations per user in `LOCK_WINDOW_SECS`
 const GENERATE_MAX_PER_DAY: usize = 5;
@@ -37,12 +39,14 @@ const GENERATE_MAX_PER_DAY: usize = 5;
 /// The code sent by E-Mail during redeeming
 const MAIL_CODE_DIGITS: usize = 8;
 pub const MAIL_CODE_LIFETIME_SECS: i64 = 600;
-const MAIL_CODE_MAX_ATTEMPTS: u8 = 3;
+const MAIL_CODE_MAX_ATTEMPTS: i64 = 3;
 
 const IDX_LOCK: &str = "recovery_lock_";
 const IDX_LOCK_IP: &str = "recovery_lock_ip_";
 const IDX_GENERATED: &str = "recovery_gen_";
 const IDX_CHALLENGE: &str = "recovery_challenge_";
+const IDX_CHALLENGE_USER: &str = "recovery_challenge_user_";
+const IDX_CHALLENGE_ATTEMPTS: &str = "recovery_challenge_att_";
 
 /// Generates a new code like `ABCD-EFGH-JKLM`.
 fn generate_code() -> String {
@@ -73,7 +77,9 @@ pub fn normalize_code(input: &str) -> Option<String> {
     (code.len() == CODE_LEN).then_some(code)
 }
 
-fn hmac(key: &[u8], normalized_code: &str) -> Vec<u8> {
+/// The encryption key is not used directly, but a key derived from it for this purpose only.
+fn hmac(enc_key: &[u8], normalized_code: &str) -> Vec<u8> {
+    let key = hmac_sha256::HMAC::mac(b"rauthy-recovery-codes", enc_key);
     hmac_sha256::HMAC::mac(normalized_code.as_bytes(), key).to_vec()
 }
 
@@ -231,9 +237,28 @@ VALUES ($1, $2, $3, $4, NULL)"#;
     }
 }
 
-/// Failed redeem attempts, keyed by a hash of the E-Mail so that unknown and existing accounts
-/// behave the same. Lives in the cache only: a restart unlocks.
+/// Failed redeem attempts.
+///
+/// - Per IP (IPv6 per /64): `LOCK_MAX_FAILURES_IP` within 24 h block redeeming from there. The
+///   window slides and the block lifts on its own.
+/// - Per account, keyed by a hash of the E-Mail so that unknown and existing accounts behave the
+///   same: `WARN_FAILURES_ACCOUNT` failures within 24 h send one warning E-Mail. They never block
+///   the account, otherwise anyone who knows an E-Mail could keep its recovery locked forever,
+///   and with 60-bit codes such a lock would add nothing against guessing.
+///
+/// Lives in the cache only: a restart resets it.
 pub struct RecoveryLock;
+
+/// IPv4 addresses as they are, IPv6 addresses by their /64 network.
+fn ip_key(ip: &str) -> String {
+    match ip.parse::<IpAddr>() {
+        Ok(IpAddr::V6(v6)) => {
+            let s = v6.segments();
+            format!("{:x}:{:x}:{:x}:{:x}::/64", s[0], s[1], s[2], s[3])
+        }
+        _ => ip.to_string(),
+    }
+}
 
 impl RecoveryLock {
     async fn failures(idx: &str) -> Result<Vec<i64>, ErrorResponse> {
@@ -256,18 +281,17 @@ impl RecoveryLock {
         Ok(count)
     }
 
-    /// `true` if redeeming is locked for this E-Mail or IP.
-    pub async fn is_locked(email: &str, ip: &str) -> Result<bool, ErrorResponse> {
-        let account = Self::failures(&format!("{IDX_LOCK}{}", hash_email(email))).await?;
-        let ip = Self::failures(&format!("{IDX_LOCK_IP}{ip}")).await?;
-        Ok(account.len() >= LOCK_MAX_FAILURES || ip.len() >= LOCK_MAX_FAILURES_IP)
+    /// `true` if redeeming from this IP is blocked.
+    pub async fn is_ip_blocked(ip: &str) -> Result<bool, ErrorResponse> {
+        let stamps = Self::failures(&format!("{IDX_LOCK_IP}{}", ip_key(ip))).await?;
+        Ok(stamps.len() >= LOCK_MAX_FAILURES_IP)
     }
 
-    /// Returns `true` exactly when this failure locked the account.
+    /// Returns `true` exactly when this failure reached `WARN_FAILURES_ACCOUNT` for the account.
     pub async fn add(email: &str, ip: &str) -> Result<bool, ErrorResponse> {
-        Self::add_failure(format!("{IDX_LOCK_IP}{ip}")).await?;
+        Self::add_failure(format!("{IDX_LOCK_IP}{}", ip_key(ip))).await?;
         let count = Self::add_failure(format!("{IDX_LOCK}{}", hash_email(email))).await?;
-        Ok(count == LOCK_MAX_FAILURES)
+        Ok(count == WARN_FAILURES_ACCOUNT)
     }
 
     /// After a successful recovery or a reset by an admin.
@@ -288,7 +312,6 @@ pub struct RecoveryChallenge {
     pub user_id: Option<String>,
     /// SHA-256 of `id` + mail code
     mail_code_hash: Vec<u8>,
-    attempts: u8,
     pub exp: i64,
 }
 
@@ -296,10 +319,9 @@ impl Debug for RecoveryChallenge {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "RecoveryChallenge {{ id: {}(...), user_id: {:?}, attempts: {}, exp: {} }}",
+            "RecoveryChallenge {{ id: {}(...), user_id: {:?}, exp: {} }}",
             &self.id[..5],
             self.user_id,
-            self.attempts,
             self.exp
         )
     }
@@ -310,8 +332,8 @@ pub struct RecoveryStart {
     pub challenge: RecoveryChallenge,
     /// The user and the mail code to send, only if the recovery code was valid
     pub mail: Option<(User, String)>,
-    /// `true` if this request locked redeeming for the account
-    pub locked_now: Option<User>,
+    /// Set when this failure reached the warning threshold for an existing account
+    pub warn_user: Option<User>,
 }
 
 impl RecoveryChallenge {
@@ -328,14 +350,14 @@ impl RecoveryChallenge {
             mail_code_hash: Self::hash_mail_code(&id, &mail_code),
             id,
             user_id,
-            attempts: 0,
             exp: Utc::now().timestamp() + MAIL_CODE_LIFETIME_SECS,
         };
         (slf, mail_code)
     }
 
     async fn save(&self) -> Result<(), ErrorResponse> {
-        DB::hql()
+        let client = DB::hql();
+        client
             .put(
                 Cache::Webauthn,
                 format!("{IDX_CHALLENGE}{}", self.id),
@@ -343,12 +365,35 @@ impl RecoveryChallenge {
                 Some(MAIL_CODE_LIFETIME_SECS),
             )
             .await?;
+        // only the newest challenge of a user is valid, see `cancel_for_user()`
+        if let Some(user_id) = &self.user_id {
+            client
+                .put(
+                    Cache::Webauthn,
+                    format!("{IDX_CHALLENGE_USER}{user_id}"),
+                    &self.id,
+                    Some(MAIL_CODE_LIFETIME_SECS),
+                )
+                .await?;
+        }
         Ok(())
     }
 
-    async fn delete(&self) -> Result<(), ErrorResponse> {
+    async fn delete(id: &str) -> Result<(), ErrorResponse> {
+        let client = DB::hql();
+        client
+            .delete(Cache::Webauthn, format!("{IDX_CHALLENGE}{id}"))
+            .await?;
+        client
+            .counter_del(Cache::Webauthn, format!("{IDX_CHALLENGE_ATTEMPTS}{id}"))
+            .await?;
+        Ok(())
+    }
+
+    /// Ends a recovery in progress, e.g. after new codes or a reset by an admin.
+    pub async fn cancel_for_user(user_id: &str) -> Result<(), ErrorResponse> {
         DB::hql()
-            .delete(Cache::Webauthn, format!("{IDX_CHALLENGE}{}", self.id))
+            .delete(Cache::Webauthn, format!("{IDX_CHALLENGE_USER}{user_id}"))
             .await?;
         Ok(())
     }
@@ -357,31 +402,25 @@ impl RecoveryChallenge {
     /// must make the response time independent of the outcome.
     pub async fn start(email: &str, code: &str, ip: &str) -> Result<RecoveryStart, ErrorResponse> {
         let normalized = normalize_code(code);
-        let locked = RecoveryLock::is_locked(email, ip).await?;
+        let ip_blocked = RecoveryLock::is_ip_blocked(ip).await?;
         let user = User::find_by_email(email.to_string()).await.ok();
 
         // A code can only be redeemed for an enabled passkey account with a verified E-Mail.
-        let now = Utc::now().timestamp();
-        let candidate = user.filter(|u| {
-            u.enabled
-                && u.email_verified
-                && u.has_webauthn_enabled()
-                && u.user_expires.map(|ts| ts > now).unwrap_or(true)
-        });
+        let candidate = user.filter(Self::is_eligible);
 
         let mut valid_user = None;
-        if !locked
+        if !ip_blocked
             && let (Some(user), Some(code)) = (&candidate, &normalized)
             && RecoveryCodes::consume(&user.id, code).await?
         {
             valid_user = candidate.clone();
         }
 
-        let mut locked_now = None;
+        let mut warn_user = None;
         if let Some(user) = &valid_user {
             RecoveryLock::clear(&user.email).await?;
-        } else if !locked && RecoveryLock::add(email, ip).await? {
-            locked_now = candidate;
+        } else if !ip_blocked && RecoveryLock::add(email, ip).await? {
+            warn_user = candidate;
         }
 
         let (challenge, mail_code) = Self::new(valid_user.as_ref().map(|u| u.id.clone()));
@@ -390,8 +429,16 @@ impl RecoveryChallenge {
         Ok(RecoveryStart {
             challenge,
             mail: valid_user.map(|u| (u, mail_code)),
-            locked_now,
+            warn_user,
         })
+    }
+
+    fn is_eligible(user: &User) -> bool {
+        let now = Utc::now().timestamp();
+        user.enabled
+            && user.email_verified
+            && user.has_webauthn_enabled()
+            && user.user_expires.map(|ts| ts > now).unwrap_or(true)
     }
 
     /// Checks the mail code. On success, the challenge is removed and the user ID returned.
@@ -402,36 +449,57 @@ impl RecoveryChallenge {
                 "The code is invalid or has expired",
             )
         };
+        let client = DB::hql();
 
-        let Some(mut slf) = DB::hql()
+        // Counted atomically before the comparison, so that parallel requests cannot get more
+        // guesses.
+        let attempt = client
+            .counter_add(Cache::Webauthn, format!("{IDX_CHALLENGE_ATTEMPTS}{id}"), 1)
+            .await?;
+        if attempt > MAIL_CODE_MAX_ATTEMPTS {
+            Self::delete(id).await?;
+            return Err(err());
+        }
+
+        let Some(slf) = client
             .get::<_, _, Self>(Cache::Webauthn, format!("{IDX_CHALLENGE}{id}"))
             .await?
         else {
+            client
+                .counter_del(Cache::Webauthn, format!("{IDX_CHALLENGE_ATTEMPTS}{id}"))
+                .await?;
             return Err(err());
         };
         if slf.exp < Utc::now().timestamp() {
-            slf.delete().await?;
+            Self::delete(id).await?;
             return Err(err());
         }
 
         let given = Self::hash_mail_code(&slf.id, mail_code.trim());
         let matches = constant_time_eq::constant_time_eq(&given, &slf.mail_code_hash);
-        match (&slf.user_id, matches) {
-            (Some(user_id), true) => {
-                let user_id = user_id.clone();
-                slf.delete().await?;
-                Ok(user_id)
+        let Some(user_id) = slf.user_id.filter(|_| matches) else {
+            if attempt >= MAIL_CODE_MAX_ATTEMPTS {
+                Self::delete(id).await?;
             }
-            _ => {
-                slf.attempts += 1;
-                if slf.attempts >= MAIL_CODE_MAX_ATTEMPTS {
-                    slf.delete().await?;
-                } else {
-                    slf.save().await?;
-                }
-                Err(err())
-            }
+            return Err(err());
+        };
+        Self::delete(id).await?;
+
+        // new codes or a reset by an admin cancel a recovery in progress
+        let current: Option<String> = client
+            .get(Cache::Webauthn, format!("{IDX_CHALLENGE_USER}{user_id}"))
+            .await?;
+        if current.as_deref() != Some(id) {
+            return Err(err());
         }
+        Self::cancel_for_user(&user_id).await?;
+        // the account may have changed within the last minutes
+        let user = User::find(user_id.clone()).await?;
+        if !Self::is_eligible(&user) {
+            return Err(err());
+        }
+
+        Ok(user_id)
     }
 }
 
@@ -488,6 +556,17 @@ mod tests {
         assert_eq!(a, hmac(b"key-a", "ABCDEFGHJKMN"));
         assert_ne!(a, hmac(b"key-b", "ABCDEFGHJKMN"));
         assert_ne!(a, hmac(b"key-a", "ABCDEFGHJKMP"));
+    }
+
+    #[test]
+    fn test_ip_key() {
+        assert_eq!(ip_key("192.0.2.7"), "192.0.2.7");
+        assert_eq!(
+            ip_key("2001:db8:1:2:aaaa:bbbb:cccc:dddd"),
+            ip_key("2001:db8:1:2::1")
+        );
+        assert_eq!(ip_key("2001:db8:1:2::1"), "2001:db8:1:2::/64");
+        assert_ne!(ip_key("2001:db8:1:3::1"), ip_key("2001:db8:1:2::1"));
     }
 
     #[test]

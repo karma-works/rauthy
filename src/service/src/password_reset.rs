@@ -159,6 +159,13 @@ pub async fn handle_put_user_passkey_finish(
         }
     }
 
+    if ctx == RegContext::Recovery {
+        // A lost device may still hold a session or tokens. This happens before the link is used
+        // up, so that an error here can be retried.
+        Session::invalidate_for_user(&user_id).await?;
+        RefreshToken::invalidate_for_user(&user_id).await?;
+    }
+
     debug!("invalidating magic link pwd");
     // all good
     ml.invalidate().await?;
@@ -168,9 +175,6 @@ pub async fn handle_put_user_passkey_finish(
     let cookie = ApiCookie::build(PWD_RESET_COOKIE, "", 0);
 
     if ctx == RegContext::Recovery {
-        // A lost device may still hold a session or tokens.
-        Session::invalidate_for_user(&user_id).await?;
-        RefreshToken::invalidate_for_user(&user_id).await?;
         let user = User::find(user_id.clone()).await?;
         Event::recovery_code_used(
             format!("{}: new passkey '{passkey_name}'", user.email),

@@ -282,7 +282,7 @@ export const I18nDe: I18n = {
         invalidMailCode: 'Der Code ist ungültig oder abgelaufen.',
         restart: 'Neu beginnen',
         newPasskey: 'Richten Sie jetzt einen neuen Passkey ein.',
-        done: 'Ihr neuer Passkey ist eingerichtet. Alle bisherigen Anmeldungen wurden beendet. Melden Sie sich jetzt neu an und entfernen Sie den verlorenen Passkey in Ihrem Konto.',
+        done: 'Ihr neuer Passkey ist eingerichtet. Alle bisherigen Anmeldungen wurden beendet. Melden Sie sich jetzt neu an, entfernen Sie den verlorenen Passkey in Ihrem Konto und erzeugen Sie neue Wiederherstellungscodes.',
         toAccount: 'Zum Konto',
         noCodes: 'Keine Codes zur Hand? Wenden Sie sich an Ihre Administration.',
     },

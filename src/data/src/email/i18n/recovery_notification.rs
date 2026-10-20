@@ -51,19 +51,19 @@ impl I18nRecoveryNotification {
         Self { head, row_1, row_2 }
     }
 
-    pub fn locked(lang: &Language) -> Self {
+    pub fn failures(lang: &Language) -> Self {
         let (head, row_1, row_2) = match lang {
             Language::De => (
-                "Wiederherstellung vorübergehend gesperrt",
-                "Für Ihr Konto wurden mehrfach ungültige Wiederherstellungscodes eingegeben. Die \
-                Wiederherstellung ist für bis zu 24 Stunden gesperrt; die Anmeldung mit Passkey \
-                funktioniert weiter.",
+                "Ungültige Wiederherstellungscodes für Ihr Konto",
+                "Für Ihr Konto wurden mehrfach ungültige Wiederherstellungscodes eingegeben. \
+                Jemand kennt möglicherweise Ihre E-Mail-Adresse. Die Anmeldung mit Passkey ist \
+                davon nicht betroffen.",
                 "Wenn Sie das nicht selbst waren, wenden Sie sich bitte an Ihre Administration.",
             ),
             _ => (
-                "Recovery temporarily locked",
+                "Invalid recovery codes for your account",
                 "Invalid recovery codes have been entered several times for your account. \
-                Recovery is locked for up to 24 hours; signing in with a passkey still works.",
+                Someone may know your email address. Signing in with a passkey is not affected.",
                 "If this was not you, please contact your administrator.",
             ),
         };
