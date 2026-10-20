@@ -7,5 +7,6 @@ pub mod login_location;
 pub mod otp;
 pub mod passkey_notification;
 pub mod password_new;
+pub mod recovery_notification;
 pub mod reset;
 pub mod reset_info;

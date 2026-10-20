@@ -22,6 +22,9 @@ pub enum MagicLinkUsage {
     EmailChange(String),
     PasswordReset(Option<String>),
     NewUser(Option<String>),
+    /// Created after a redeemed recovery code, only allows to register a new passkey. It is never
+    /// sent by E-Mail and always bound to the browser that redeemed the code.
+    PasskeyRecovery,
 }
 
 impl TryFrom<&String> for MagicLinkUsage {
@@ -39,6 +42,7 @@ impl TryFrom<&str> for MagicLinkUsage {
         let (ty, v) = value.split_once('$').unwrap_or((value, ""));
         let slf = match ty {
             "email_change" => MagicLinkUsage::EmailChange(v.to_string()),
+            "passkey_recovery" => MagicLinkUsage::PasskeyRecovery,
             "new_user" => {
                 if !v.is_empty() {
                     MagicLinkUsage::NewUser(Some(v.to_string()))
@@ -69,7 +73,11 @@ impl MagicLinkUsage {
     /// `true` if a link with this usage may only be used to register a passkey, never to set a
     /// password, see `webauthn.new_user_passkey_only`.
     pub fn is_passkey_only(&self, new_user_passkey_only: bool) -> bool {
-        new_user_passkey_only && matches!(self, Self::NewUser(_))
+        match self {
+            Self::NewUser(_) => new_user_passkey_only,
+            Self::PasskeyRecovery => true,
+            Self::EmailChange(_) | Self::PasswordReset(_) => false,
+        }
     }
 }
 
@@ -79,6 +87,7 @@ impl Display for MagicLinkUsage {
         // It also makes splitting of the value quite easy.
         match self {
             MagicLinkUsage::EmailChange(email) => write!(f, "email_change${email}"),
+            MagicLinkUsage::PasskeyRecovery => write!(f, "passkey_recovery"),
             MagicLinkUsage::NewUser(redirect_uri) => {
                 if let Some(uri) = redirect_uri {
                     write!(f, "new_user${uri}")
@@ -180,11 +189,12 @@ VALUES ($1, $2, $3, $4, $5, $6)"#;
         Ok(link)
     }
 
-    /// Deletes all links of a user that can be used to set up credentials (`password_reset` and
-    /// `new_user`), so that only a freshly sent one stays valid.
+    /// Deletes all links of a user that can be used to set up credentials (`password_reset`,
+    /// `new_user` and `passkey_recovery`), so that only a freshly sent one stays valid.
     pub async fn delete_all_credential_links_for_user(user_id: &str) -> Result<(), ErrorResponse> {
         let sql = "DELETE FROM magic_links WHERE user_id = $1 \
-            AND (usage LIKE 'password_reset%' OR usage LIKE 'new_user%')";
+            AND (usage LIKE 'password_reset%' OR usage LIKE 'new_user%' \
+            OR usage LIKE 'passkey_recovery%')";
         if is_hiqlite() {
             DB::hql().execute(sql, params!(user_id)).await?;
         } else {
@@ -267,16 +277,26 @@ impl MagicLink {
         with_csrf: bool,
     ) -> Result<(), ErrorResponse> {
         // binding cookie
+        let is_recovery = self.usage == MagicLinkUsage::PasskeyRecovery.to_string();
+        if is_recovery && self.cookie.is_none() {
+            return Err(ErrorResponse::new(
+                ErrorResponseType::Forbidden,
+                "A recovery link must be bound to the browser that redeemed the code",
+            ));
+        }
+
         if let Some(cookie_slf) = &self.cookie {
             let err = ErrorResponse::new(
                 ErrorResponseType::Forbidden,
                 "The requested password reset link is already tied to another session",
             );
 
+            // A recovery link is never sent by E-Mail, so the binding is always enforced.
             let cookie_binding = RauthyConfig::get()
                 .vars
                 .access
-                .password_reset_cookie_binding;
+                .password_reset_cookie_binding
+                || is_recovery;
             if let Some(cookie) = ApiCookie::from_req(req, PWD_RESET_COOKIE) {
                 // the extracted cookie from the request starts with 'rauthy-pwd-reset='
                 let binding_matches = cookie.len() >= cookie_slf.len()
@@ -419,5 +439,19 @@ mod tests {
         assert!(MagicLinkUsage::NewUser(Some("custom.uri.com".to_string())).is_passkey_only(true));
         assert!(!MagicLinkUsage::PasswordReset(None).is_passkey_only(true));
         assert!(!MagicLinkUsage::EmailChange("admin@localhost".to_string()).is_passkey_only(true));
+
+        // a recovery link only ever registers a passkey, no matter the config
+        assert!(MagicLinkUsage::PasskeyRecovery.is_passkey_only(false));
+        assert!(MagicLinkUsage::PasskeyRecovery.is_passkey_only(true));
+    }
+
+    #[test]
+    fn test_magic_link_usage_passkey_recovery_roundtrip() {
+        let s = MagicLinkUsage::PasskeyRecovery.to_string();
+        assert_eq!(s, "passkey_recovery");
+        assert_eq!(
+            MagicLinkUsage::try_from(s.as_str()).unwrap(),
+            MagicLinkUsage::PasskeyRecovery
+        );
     }
 }

@@ -2,20 +2,24 @@ use actix_web::{HttpRequest, HttpResponse, cookie};
 use chrono::Utc;
 use rauthy_api_types::generic::PasswordPolicyResponse;
 use rauthy_api_types::users::{
-    PasswordResetRequest, WebauthnRegFinishRequest, WebauthnRegStartRequest,
+    PasswordResetRequest, RecoveryCodesResponse, WebauthnRegFinishRequest, WebauthnRegStartRequest,
 };
 use rauthy_common::constants::{PWD_CSRF_HEADER, PWD_RESET_COOKIE};
 use rauthy_common::utils::{get_rand, real_ip_from_req};
 use rauthy_data::api_cookie::ApiCookie;
+use rauthy_data::email::notification::send_email_passkey_added;
 use rauthy_data::entity::logos::{Logo, LogoType};
 use rauthy_data::entity::magic_links::{MagicLink, MagicLinkUsage};
 use rauthy_data::entity::password::PasswordPolicy;
 use rauthy_data::entity::pwd_exp_mails::PasswordExpMail;
+use rauthy_data::entity::recovery_codes::RecoveryCodes;
+use rauthy_data::entity::refresh_tokens::RefreshToken;
 use rauthy_data::entity::sessions::Session;
 use rauthy_data::entity::theme::ThemeCssFull;
 use rauthy_data::entity::users::User;
 use rauthy_data::entity::webauthn;
 use rauthy_data::entity::webauthn::auth_req::WebauthnServiceReq;
+use rauthy_data::entity::webauthn::register::RegContext;
 use rauthy_data::events::event::Event;
 use rauthy_data::html::templates::{PwdResetHtml, TplPasswordReset};
 use rauthy_data::language::Language;
@@ -32,6 +36,13 @@ pub async fn handle_get_pwd_reset<'a>(
 ) -> Result<(String, cookie::Cookie<'a>), ErrorResponse> {
     let mut ml = MagicLink::find(&reset_id).await?;
     ml.validate(&user_id, &req, false)?;
+    // a recovery link is never opened as a page, see `RecoveryChallenge::verify()`
+    if MagicLinkUsage::try_from(&ml.usage)? == MagicLinkUsage::PasskeyRecovery {
+        return Err(ErrorResponse::new(
+            ErrorResponseType::Forbidden,
+            "Invalid link for this page",
+        ));
+    }
 
     let user = User::find(ml.user_id.clone()).await?;
     let lang = Language::try_from(&req).unwrap_or_default();
@@ -85,8 +96,9 @@ pub async fn handle_put_user_passkey_start(
     ml.validate(&user.id, &req, true)?;
 
     // if we register a new passkey, we need to make sure that the magic link is for a new user
+    // or a recovery
     match MagicLinkUsage::try_from(&ml.usage)? {
-        MagicLinkUsage::NewUser(_) => {}
+        MagicLinkUsage::NewUser(_) | MagicLinkUsage::PasskeyRecovery => {}
         _ => {
             return Err(ErrorResponse::new(
                 ErrorResponseType::Forbidden,
@@ -113,11 +125,18 @@ pub async fn handle_put_user_passkey_finish(
 
     // finish webauthn request -> always force UV for passkey only accounts
     debug!("ml is valid - finishing webauthn request");
-    let is_new_user = matches!(
-        MagicLinkUsage::try_from(&ml.usage),
-        Ok(MagicLinkUsage::NewUser(_))
-    );
-    webauthn::register::reg_finish(user_id.clone(), req_data, is_new_user).await?;
+    let ctx = match MagicLinkUsage::try_from(&ml.usage)? {
+        MagicLinkUsage::NewUser(_) => RegContext::NewUser,
+        MagicLinkUsage::PasskeyRecovery => RegContext::Recovery,
+        _ => {
+            return Err(ErrorResponse::new(
+                ErrorResponseType::Forbidden,
+                "You cannot register a new passkey here for an existing user",
+            ));
+        }
+    };
+    let passkey_name = req_data.passkey_name.clone();
+    webauthn::register::reg_finish(user_id.clone(), req_data, ctx).await?;
 
     // validate csrf token
     match req.headers().get(PWD_CSRF_HEADER) {
@@ -143,10 +162,40 @@ pub async fn handle_put_user_passkey_finish(
     debug!("invalidating magic link pwd");
     // all good
     ml.invalidate().await?;
-    User::set_email_verified(user_id, true).await?;
+    User::set_email_verified(user_id.clone(), true).await?;
 
     // delete the cookie
     let cookie = ApiCookie::build(PWD_RESET_COOKIE, "", 0);
+
+    if ctx == RegContext::Recovery {
+        // A lost device may still hold a session or tokens.
+        Session::invalidate_for_user(&user_id).await?;
+        RefreshToken::invalidate_for_user(&user_id).await?;
+        let user = User::find(user_id.clone()).await?;
+        Event::recovery_code_used(
+            format!("{}: new passkey '{passkey_name}'", user.email),
+            Some(real_ip_from_req(&req)?.to_string()),
+        )
+        .send()
+        .await?;
+        // always, even without `webauthn.notify_passkey_added`
+        if !RauthyConfig::get().vars.webauthn.notify_passkey_added {
+            send_email_passkey_added(&user, &passkey_name).await;
+        }
+    } else if RauthyConfig::get().vars.webauthn.recovery_codes
+        && RecoveryCodes::info(&user_id).await?.remaining == 0
+    {
+        // The account setup offers the codes once, right after the first passkey. There is no
+        // session yet, so this response is the only way to hand them out here.
+        let codes = RecoveryCodes::generate(&user_id).await?;
+        return Ok(HttpResponse::Created()
+            .cookie(cookie)
+            .insert_header(("cache-control", "no-store"))
+            .json(RecoveryCodesResponse {
+                recovery_codes: codes,
+            }));
+    }
+
     Ok(HttpResponse::Created().cookie(cookie).finish())
 }
 

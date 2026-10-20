@@ -40,6 +40,7 @@ pub mod kv;
 pub mod oidc;
 pub mod openapi;
 pub mod pam;
+pub mod recovery;
 pub mod roles;
 pub mod scopes;
 pub mod sessions;

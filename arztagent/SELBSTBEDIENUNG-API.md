@@ -137,3 +137,21 @@ anmelden lassen.
   Sitzung. Die Sitzung der Anfrage bleibt. Ohne CSRF 401, ohne Token 400, unbekannter Token 401,
   fremde `{id}` 403.
 - Sitzungen von vor diesem Update haben kein `device`.
+
+## Wiederherstellungscodes (A3)
+
+Nur mit `WEBAUTHN_RECOVERY_CODES=true`, sonst 404.
+
+- Erzeugen: frischen mfa_mod_token per Passkey holen (siehe oben), dann
+  `POST /users/{id}/recovery_codes` mit `{"mfa_mod_token_id": …}` → 200 `{recovery_codes: [10]}`,
+  `Cache-Control: no-store`. Der Token ist danach verbraucht; Passwort-Token reichen nicht (400);
+  höchstens 5-mal in 24 h (429). Alte Codes werden ungültig, die Person bekommt eine Mail.
+  Die Codes nur anzeigen (Kopieren, Textdatei, Drucken), nie speichern oder loggen.
+- Anzeigen: `GET /users/{id}/recovery_codes` → `{remaining, created?}` (eigene Person oder
+  API-Key mit `Users` + `Read`; die Team-Seite zeigt „Codes vorhanden ja/nein“).
+- Zurücksetzen durch die Praxis: `DELETE /users/{id}/recovery_codes` (API-Key `Users` +
+  `Delete`) löscht Codes und hebt eine Sperre auf. Löscht ein Admin einen Passkey, verschwinden
+  die Codes automatisch mit.
+- Einlösen läuft nur über Rauthys Seite `/users/recover` (E-Mail + Code → Bestätigungscode per
+  Mail → neuer Passkey im selben Browser). Danach sind alle Sitzungen der Person beendet; die App
+  muss neu anmelden. Die Einrichtungsseite zeigt die Codes einmal nach dem ersten Passkey.

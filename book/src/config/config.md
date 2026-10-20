@@ -3159,6 +3159,20 @@ rp_origin = 'http://localhost:8080'
 # overwritten by: WEBAUTHN_ASK_SHARED_DEVICE
 #ask_shared_device = false
 
+# If set to `true`, accounts with a passkey can create ten one-time
+# recovery codes. A code alone gives no access: redeeming it on the
+# public page `/auth/v1/users/recover` sends a confirmation code to the
+# account's E-Mail, which must be entered in the same browser. Only then
+# a new passkey can be registered; all existing sessions are ended.
+# The responses never reveal whether an account exists. After 5 failed
+# attempts within 24 hours, redeeming is locked for the account (it
+# unlocks on its own, an admin can unlock early). The account setup
+# shows the codes once after the first passkey.
+#
+# default: false
+# overwritten by: WEBAUTHN_RECOVERY_CODES
+#recovery_codes = false
+
 # When you want to migrate an existing deployment over to enforced
 # attestation, you usually have a chicken-and-egg problem: You
 # have users that already use Passkeys. Device attestation only

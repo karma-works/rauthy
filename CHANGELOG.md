@@ -4,6 +4,31 @@
 
 ### Changes
 
+#### Recovery Codes
+
+With the new `webauthn.recovery_codes` (`WEBAUTHN_RECOVERY_CODES`), accounts with a passkey can
+create ten one-time recovery codes like `ABCD-EFGH-JKLM` (60 random bits each).
+
+- `POST /users/{id}/recovery_codes` creates new codes with a fresh `mfa_mod_token`, which is
+  consumed, and invalidates all old ones. Only for accounts with a passkey, at most 5 times a day.
+  The codes are returned exactly once. The account setup shows them once after the first passkey.
+- `GET /users/{id}/recovery_codes` returns `remaining` and `created`, for the user and admins.
+  `DELETE` (admins) removes them and unlocks redeeming. An admin removing a passkey removes the
+  codes as well.
+- Redeeming is public: `/auth/v1/users/recover` takes the E-Mail and a code
+  (`POST /users/recover/start`), then a confirmation code from an E-Mail, entered in the same
+  browser (`POST /users/recover/verify`). Only then a new passkey can be registered through a
+  `passkey_recovery` link that is bound to this browser and never sent by E-Mail. Afterwards, all
+  sessions and refresh tokens of the user are ended. Existing passkeys stay.
+- The start always returns the same response and takes at least 1.5 s, whether the account
+  exists, the code is valid or redeeming is locked. After 5 failed attempts within 24 h (per
+  account, keyed by a hash of the E-Mail) or 20 per IP, redeeming is locked; it unlocks on its
+  own. The user gets one E-Mail when it locks.
+- Codes are stored as `HMAC-SHA256` with the active encryption key and its ID, so that a key
+  rotation keeps them valid. New events: `RecoveryCodeUsed`, `RecoveryCodeFailed`,
+  `RecoveryCodesRegenerated`. New table `recovery_codes` (migrations `V37` / `42`).
+- With the split login layout, the login page links to the recovery page.
+
 #### Own Sessions
 
 Users can list and end their own sessions through the API, for apps that build their own account

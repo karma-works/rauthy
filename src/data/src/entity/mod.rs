@@ -45,6 +45,7 @@ pub mod pictures;
 pub mod pow;
 pub mod principal;
 pub mod pwd_exp_mails;
+pub mod recovery_codes;
 pub mod refresh_tokens;
 pub mod refresh_tokens_devices;
 pub mod roles;

@@ -165,6 +165,9 @@ pub enum EventType {
     TokenIssued,
     CredentialStuffing,
     EmailSendError,
+    RecoveryCodeUsed,
+    RecoveryCodeFailed,
+    RecoveryCodesRegenerated,
 }
 
 impl Display for EventType {
@@ -194,6 +197,9 @@ impl Display for EventType {
             Self::TokenIssued => write!(f, "JWT Token issued"),
             Self::CredentialStuffing => write!(f, "Possible credential stuffing"),
             Self::EmailSendError => write!(f, "E-Mail send error"),
+            Self::RecoveryCodeUsed => write!(f, "Recovery code used"),
+            Self::RecoveryCodeFailed => write!(f, "Recovery code failed"),
+            Self::RecoveryCodesRegenerated => write!(f, "Recovery codes regenerated"),
         }
     }
 }
@@ -227,6 +233,11 @@ impl From<rauthy_api_types::events::EventType> for EventType {
             rauthy_api_types::events::EventType::TokenIssued => Self::TokenIssued,
             rauthy_api_types::events::EventType::CredentialStuffing => Self::CredentialStuffing,
             rauthy_api_types::events::EventType::EmailSendError => Self::EmailSendError,
+            rauthy_api_types::events::EventType::RecoveryCodeUsed => Self::RecoveryCodeUsed,
+            rauthy_api_types::events::EventType::RecoveryCodeFailed => Self::RecoveryCodeFailed,
+            rauthy_api_types::events::EventType::RecoveryCodesRegenerated => {
+                Self::RecoveryCodesRegenerated
+            }
         }
     }
 }
@@ -258,6 +269,9 @@ impl From<EventType> for rauthy_api_types::events::EventType {
             EventType::TokenIssued => Self::TokenIssued,
             EventType::CredentialStuffing => Self::CredentialStuffing,
             EventType::EmailSendError => Self::EmailSendError,
+            EventType::RecoveryCodeUsed => Self::RecoveryCodeUsed,
+            EventType::RecoveryCodeFailed => Self::RecoveryCodeFailed,
+            EventType::RecoveryCodesRegenerated => Self::RecoveryCodesRegenerated,
         }
     }
 }
@@ -289,6 +303,9 @@ impl EventType {
             Self::TokenIssued => "TokenIssued",
             Self::CredentialStuffing => "CredentialStuffing",
             Self::EmailSendError => "EmailSendError",
+            Self::RecoveryCodeUsed => "RecoveryCodeUsed",
+            Self::RecoveryCodeFailed => "RecoveryCodeFailed",
+            Self::RecoveryCodesRegenerated => "RecoveryCodesRegenerated",
         }
     }
 
@@ -321,6 +338,9 @@ impl EventType {
             EventType::TokenIssued => 21,
             EventType::CredentialStuffing => 22,
             EventType::EmailSendError => 23,
+            EventType::RecoveryCodeUsed => 24,
+            EventType::RecoveryCodeFailed => 25,
+            EventType::RecoveryCodesRegenerated => 26,
         }
     }
 }
@@ -352,6 +372,9 @@ impl From<String> for EventType {
             "TokenIssued" => Self::TokenIssued,
             "CredentialStuffing" => Self::CredentialStuffing,
             "EmailSendError" => Self::EmailSendError,
+            "RecoveryCodeUsed" => Self::RecoveryCodeUsed,
+            "RecoveryCodeFailed" => Self::RecoveryCodeFailed,
+            "RecoveryCodesRegenerated" => Self::RecoveryCodesRegenerated,
             // just return test to never panic
             s => {
                 error!("EventType::from() for invalid String: {s}");
@@ -394,6 +417,9 @@ impl From<i64> for EventType {
             21 => EventType::TokenIssued,
             22 => EventType::CredentialStuffing,
             23 => EventType::EmailSendError,
+            24 => EventType::RecoveryCodeUsed,
+            25 => EventType::RecoveryCodeFailed,
+            26 => EventType::RecoveryCodesRegenerated,
             _ => EventType::Test,
         }
     }
@@ -505,6 +531,9 @@ impl From<&Event> for Notification {
                 value.ip.as_deref().unwrap_or_default()
             )),
             EventType::EmailSendError => value.text.clone(),
+            EventType::RecoveryCodeUsed
+            | EventType::RecoveryCodeFailed
+            | EventType::RecoveryCodesRegenerated => value.text.clone(),
         };
 
         Self {
@@ -712,6 +741,38 @@ impl Event {
             Some(ip),
             None,
             None,
+        )
+    }
+
+    /// A recovery code was redeemed and a passkey added with it. `text` names the user.
+    pub fn recovery_code_used(text: String, ip: Option<String>) -> Self {
+        Self::new(
+            EventLevel::Warning,
+            EventType::RecoveryCodeUsed,
+            ip,
+            None,
+            Some(text),
+        )
+    }
+
+    /// Redeeming was locked for an existing account after too many failed attempts.
+    pub fn recovery_code_failed(text: String, ip: Option<String>) -> Self {
+        Self::new(
+            EventLevel::Notice,
+            EventType::RecoveryCodeFailed,
+            ip,
+            None,
+            Some(text),
+        )
+    }
+
+    pub fn recovery_codes_regenerated(text: String, ip: Option<String>) -> Self {
+        Self::new(
+            EventLevel::Info,
+            EventType::RecoveryCodesRegenerated,
+            ip,
+            None,
+            Some(text),
         )
     }
 
@@ -1061,6 +1122,9 @@ impl Event {
             EventType::LoginNewLocation => self.text.clone().unwrap_or_default(),
             EventType::TokenIssued => self.text.clone().unwrap_or_default(),
             EventType::EmailSendError => self.text.clone().unwrap_or_default(),
+            EventType::RecoveryCodeUsed
+            | EventType::RecoveryCodeFailed
+            | EventType::RecoveryCodesRegenerated => self.text.clone().unwrap_or_default(),
         }
     }
 

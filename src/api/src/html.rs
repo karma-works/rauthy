@@ -5,7 +5,7 @@ use actix_web::{HttpRequest, HttpResponse, get, web};
 use rauthy_data::entity::theme::ThemeCssFull;
 use rauthy_data::html::HtmlCached;
 use rauthy_data::rauthy_config::RauthyConfig;
-use rauthy_error::ErrorResponse;
+use rauthy_error::{ErrorResponse, ErrorResponseType};
 use std::borrow::Cow;
 
 #[get("/{_:.*}")]
@@ -227,6 +227,20 @@ pub async fn get_device_html(req: HttpRequest) -> Result<HttpResponse, ErrorResp
 #[get("/fedcm")]
 pub async fn get_fed_cm_html(req: HttpRequest) -> Result<HttpResponse, ErrorResponse> {
     HtmlCached::FedCM
+        .handle(req, ThemeCssFull::find_theme_ts_rauthy().await?, true)
+        .await
+}
+
+/// "Lost your passkey?", only with `webauthn.recovery_codes`
+#[get("/users/recover")]
+pub async fn get_user_recover_html(req: HttpRequest) -> Result<HttpResponse, ErrorResponse> {
+    if !RauthyConfig::get().vars.webauthn.recovery_codes {
+        return Err(ErrorResponse::new(
+            ErrorResponseType::NotFound,
+            "Recovery codes are not enabled",
+        ));
+    }
+    HtmlCached::Recover
         .handle(req, ThemeCssFull::find_theme_ts_rauthy().await?, true)
         .await
 }

@@ -43,6 +43,14 @@ impl MfaModToken {
         Ok(slf)
     }
 
+    /// For actions that must not be repeated with the same token.
+    pub async fn delete(&self) -> Result<(), ErrorResponse> {
+        DB::hql()
+            .delete(Cache::Webauthn, Self::cache_idx(&self.id))
+            .await?;
+        Ok(())
+    }
+
     pub async fn find(id: &str) -> Result<Self, ErrorResponse> {
         if let Some(slf) = DB::hql().get(Cache::Webauthn, Self::cache_idx(id)).await? {
             Ok(slf)
