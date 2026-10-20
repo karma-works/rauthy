@@ -15,6 +15,7 @@
         TPL_IS_REG_OPEN,
         TPL_LOGIN_ACTION,
         TPL_LOGIN_LAYOUT,
+        TPL_RECOVERY_CODES,
         TPL_PASSKEY_REG_TYPE,
         TPL_ATPROTO_ID,
     } from '$utils/constants.js';
@@ -116,6 +117,7 @@
     // `access.login_layout`: `split` shows two cards, for a known and for a new device
     let loginLayout = $state('default');
     let isSplit = $derived(loginLayout === 'split');
+    let recoveryEnabled = $state(false);
     let splitCard: undefined | SplitCard = $state();
     let passkeyHints: undefined | PasskeyHint[] = $state();
     let splitLoadingCard = $derived(isLoading || mfaPurpose ? splitCard : undefined);
@@ -640,6 +642,7 @@
 <Template id={TPL_IS_REG_OPEN} bind:value={isRegOpen} />
 <Template id={TPL_PASSKEY_REG_TYPE} bind:value={passkeyRegType} />
 <Template id={TPL_LOGIN_LAYOUT} bind:value={loginLayout} />
+<Template id={TPL_RECOVERY_CODES} bind:value={recoveryEnabled} />
 
 {#snippet loginOverlays()}
     {#if mfaPurpose}
@@ -687,6 +690,7 @@
                 bind:email
                 loadingCard={splitLoadingCard}
                 disabled={tooManyRequests}
+                {recoveryEnabled}
                 errExisting={splitCard === 'existing' ? splitErr : ''}
                 errNew={splitCard === 'new' ? splitErr : ''}
                 onExisting={() => onSplitLogin('existing')}

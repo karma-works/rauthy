@@ -1702,7 +1702,9 @@ impl User {
 
         let usage = MagicLinkUsage::try_from(&ml.usage)?;
         let new_email = match usage {
-            MagicLinkUsage::NewUser(_) | MagicLinkUsage::PasswordReset(_) => {
+            MagicLinkUsage::NewUser(_)
+            | MagicLinkUsage::PasswordReset(_)
+            | MagicLinkUsage::PasskeyRecovery => {
                 return Err(ErrorResponse::new(
                     ErrorResponseType::BadRequest,
                     "The Magic Link is not meant to be used to confirm an E-Mail address",

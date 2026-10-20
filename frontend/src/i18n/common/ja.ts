@@ -235,6 +235,36 @@ export const I18nJa: I18n = {
         privacy: 'プライバシー',
         help: 'ヘルプ',
     },
+    recoveryCodes: {
+        title: 'Your recovery codes',
+        desc: 'Keep the codes separate from your devices, for example printed in a safe place. Each code works exactly once.',
+        copy: 'Copy',
+        copied: 'Copied',
+        download: 'As text file',
+        print: 'Print',
+        warning:
+            'A code alone does not open your account. It only allows to set up a new passkey after a confirmation by email. Do not save the file on a shared computer.',
+        confirm: 'I have stored the codes safely',
+        done: 'Done',
+        fileTitle: 'Recovery codes – each code works exactly once',
+    },
+    recover: {
+        title: 'Lost your passkey?',
+        desc: 'Enter your email address and one of your recovery codes. Then confirm with a code from an email and set up a new passkey.',
+        code: 'Recovery code',
+        codePlaceholder: 'ABCD-EFGH-JKLM',
+        continue: 'Continue',
+        mailSent:
+            'If the email address and the code are correct, we have sent you a confirmation code. It is valid for 10 minutes.',
+        mailCode: 'Confirmation code from the email',
+        confirm: 'Confirm',
+        invalidMailCode: 'The code is invalid or has expired.',
+        restart: 'Start over',
+        newPasskey: 'Now set up a new passkey.',
+        done: 'Your new passkey is set up. All previous sign-ins have been ended. Sign in again now, remove the lost passkey in your account and create new recovery codes.',
+        toAccount: 'To my account',
+        noCodes: 'No codes at hand? Contact your administrator.',
+    },
     splitLogin: {
         title: '{client} にサインイン',
         intro: '状況に合った方法を選んでください。',
@@ -254,6 +284,9 @@ export const I18nJa: I18n = {
         lost: 'パスキーを紛失しましたか？管理者に連絡してください。',
         wrongAccount:
             'サインインできません。メールアドレスを確認し、このアカウントのパスキーを使用してください。',
+        lostPrefix: 'Lost your passkey?',
+        lostLink: 'Continue with a recovery code',
+        lostSuffix: 'or contact your administrator.',
     },
     passkeyDevice: {
         kind: 'デバイス',

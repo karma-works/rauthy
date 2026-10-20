@@ -202,6 +202,34 @@ export interface I18n {
         privacy: string;
         help: string;
     };
+    recoveryCodes: {
+        title: string;
+        desc: string;
+        copy: string;
+        copied: string;
+        download: string;
+        print: string;
+        warning: string;
+        confirm: string;
+        done: string;
+        fileTitle: string;
+    };
+    recover: {
+        title: string;
+        desc: string;
+        code: string;
+        codePlaceholder: string;
+        continue: string;
+        mailSent: string;
+        mailCode: string;
+        confirm: string;
+        invalidMailCode: string;
+        restart: string;
+        newPasskey: string;
+        done: string;
+        toAccount: string;
+        noCodes: string;
+    };
     splitLogin: {
         title: string;
         intro: string;
@@ -218,6 +246,9 @@ export interface I18n {
         or: string;
         lost: string;
         wrongAccount: string;
+        lostPrefix: string;
+        lostLink: string;
+        lostSuffix: string;
     };
     passkeyDevice: {
         kind: string;

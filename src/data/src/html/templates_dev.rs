@@ -107,6 +107,7 @@ impl HtmlTemplate {
                 None,
             )),
             "tpl_passkey_reg_type" => Ok((Self::PasskeyRegType, None)),
+            "tpl_recovery_codes" => Ok((Self::RecoveryCodes, None)),
             "tpl_restricted_email_domain" => Ok((
                 Self::RestrictedEmailDomain(
                     RauthyConfig::get()

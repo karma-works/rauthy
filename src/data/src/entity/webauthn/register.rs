@@ -108,11 +108,25 @@ pub async fn reg_start(
     }
 }
 
+/// Where a registration comes from
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RegContext {
+    /// A logged-in user with a fresh `MfaModToken`
+    Session,
+    /// The `new_user` magic link of the account setup
+    NewUser,
+    /// A `passkey_recovery` magic link after a redeemed recovery code
+    Recovery,
+}
+
 pub async fn reg_finish(
     id: String,
     payload: WebauthnRegFinishRequest,
-    is_new_user: bool,
+    ctx: RegContext,
 ) -> Result<(), ErrorResponse> {
+    let is_new_user = ctx == RegContext::NewUser;
+    // a passkey from a magic link must always be user verified
+    let force_uv = ctx != RegContext::Session;
     let mut user = User::find(id).await?;
 
     let idx = format!("reg_{:?}_{}", payload.passkey_name, user.id);
@@ -160,9 +174,7 @@ pub async fn reg_finish(
         Ok(pk) => {
             let cred = Credential::from(pk.clone());
 
-            if (requires_uv(user.account_type(), cfg.force_uv) || is_new_user)
-                && !cred.user_verified
-            {
+            if (requires_uv(user.account_type(), cfg.force_uv) || force_uv) && !cred.user_verified {
                 warn!(
                     user.id,
                     "Webauthn Registration Ceremony without User Verification",

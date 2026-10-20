@@ -869,3 +869,71 @@ pub struct WebauthnLoginResponse {
     pub code: String,
     pub exp: u64,
 }
+
+/// The codes in plain text, shown exactly once
+#[derive(Serialize, ToSchema)]
+#[cfg_attr(debug_assertions, derive(Deserialize))]
+pub struct RecoveryCodesResponse {
+    pub recovery_codes: Vec<String>,
+}
+
+#[derive(Serialize, ToSchema)]
+#[cfg_attr(debug_assertions, derive(Deserialize))]
+pub struct RecoveryCodesInfoResponse {
+    /// Unused codes
+    pub remaining: i64,
+    /// Unix timestamp in seconds of the current set of codes
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created: Option<i64>,
+}
+
+#[derive(Deserialize, Validate, ToSchema)]
+pub struct RecoveryCodesGenerateRequest {
+    /// A fresh `MfaModToken` of this user, see `POST /users/{id}/mfa_token`
+    #[validate(length(min = 32, max = 32))]
+    pub mfa_mod_token_id: String,
+}
+
+/// No `Debug` on purpose: the code must never end up in a log.
+#[derive(Deserialize, Validate, ToSchema)]
+pub struct RecoverStartRequest {
+    /// Validation: `email`
+    #[validate(email)]
+    pub email: String,
+    /// A recovery code like `ABCD-EFGH-JKLM`
+    #[validate(length(max = 32))]
+    pub code: String,
+    /// Validation: `[a-zA-Z0-9,.:/_\-&?=~#!$'()*+%]+`
+    #[validate(regex(path = "*RE_URI", code = "[a-zA-Z0-9,.:/_\\-&?=~#!$'()*+%]+"))]
+    pub pow: String,
+}
+
+/// Always returned, whether the account and the code exist or not.
+#[derive(Serialize, ToSchema)]
+#[cfg_attr(debug_assertions, derive(Deserialize))]
+pub struct RecoverStartResponse {
+    pub challenge_id: String,
+    /// Unix timestamp in seconds until the code from the E-Mail is valid
+    pub exp: i64,
+}
+
+/// No `Debug` on purpose: the code must never end up in a log.
+#[derive(Deserialize, Validate, ToSchema)]
+pub struct RecoverVerifyRequest {
+    /// Validation: `[a-zA-Z0-9]{48}`
+    #[validate(regex(path = "*RE_ALNUM_48", code = "[a-zA-Z0-9]{48}"))]
+    pub challenge_id: String,
+    /// The code from the E-Mail
+    #[validate(length(max = 16))]
+    pub mail_code: String,
+}
+
+/// Allows to register a new passkey with `magic_link_id` and the `x-pwd-csrf-token` header,
+/// like the account setup. The binding cookie is set with this response.
+#[derive(Serialize, ToSchema)]
+#[cfg_attr(debug_assertions, derive(Deserialize))]
+pub struct RecoverVerifyResponse {
+    pub user_id: String,
+    pub magic_link_id: String,
+    pub csrf_token: String,
+}

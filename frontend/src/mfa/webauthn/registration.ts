@@ -9,6 +9,8 @@ import { getCsrfToken, promiseTimeout } from '$utils/helpers';
 
 export interface WebauthnRegResult {
     error?: string;
+    /** only after the first passkey of an account setup with `webauthn.recovery_codes` */
+    recoveryCodes?: string[];
 }
 
 export interface WebauthnRegOptions {
@@ -135,6 +137,10 @@ export async function webauthnReg(
         body: JSON.stringify(payloadFinish),
     });
     if (resFinish.status === 201) {
+        if (resFinish.headers.get('content-type')?.includes('application/json')) {
+            let body = await resFinish.json();
+            return { recoveryCodes: body.recovery_codes };
+        }
         return {};
     } else if (resFinish.status === 406) {
         let body = await resFinish.json();

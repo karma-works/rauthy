@@ -25,6 +25,7 @@
     import type { MfaPurpose } from '$api/types/mfa';
     import PasskeyTypeSelect from '$lib/PasskeyTypeSelect.svelte';
     import SharedDeviceQuestion from '$lib/SharedDeviceQuestion.svelte';
+    import RecoveryCodesDisplay from '$lib/RecoveryCodesDisplay.svelte';
     import type { PasskeyHint, SharedDeviceChoice } from '$mfa/webauthn/types.ts';
 
     const inputWidth = '20rem';
@@ -42,6 +43,8 @@
     let accountTypeNew = $state('');
     let redirectUri = $state('');
     let success = $state(false);
+    // shown once after the first passkey, before `success`
+    let recoveryCodes: string[] = $state([]);
     let accepted = $state(false);
 
     let mfaPurpose: undefined | MfaPurpose = $state();
@@ -149,7 +152,11 @@
             }
         } else {
             resetValues();
-            success = true;
+            if (res.recoveryCodes?.length) {
+                recoveryCodes = res.recoveryCodes;
+            } else {
+                success = true;
+            }
         }
     }
 
@@ -317,7 +324,15 @@
             />
         {/if}
 
-        {#if success}
+        {#if recoveryCodes.length > 0 && !success}
+            <RecoveryCodesDisplay
+                codes={recoveryCodes}
+                onDone={() => {
+                    recoveryCodes = [];
+                    success = true;
+                }}
+            />
+        {:else if success}
             <p>
                 {#if accountTypeNew === 'passkey'}
                     {t.passwordReset.successPasskey1}

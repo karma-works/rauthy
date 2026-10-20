@@ -37,6 +37,9 @@ pub enum EventType {
     TokenIssued,
     CredentialStuffing,
     EmailSendError,
+    RecoveryCodeUsed,
+    RecoveryCodeFailed,
+    RecoveryCodesRegenerated,
 }
 
 #[derive(Deserialize, Validate, ToSchema, IntoParams)]

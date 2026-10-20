@@ -1,6 +1,6 @@
 use crate::{
     api_keys, atproto, auth_providers, backup, blacklist, clients, email, events, fed_cm, generic,
-    groups, kv, oidc, pam, roles, scopes, sessions, themes, tos, users,
+    groups, kv, oidc, pam, recovery, roles, scopes, sessions, themes, tos, users,
 };
 use rauthy_api_types::*;
 use rauthy_api_types::{
@@ -218,6 +218,11 @@ use utoipa::{OpenApi, openapi};
         users::get_user_attr,
         users::put_user_attr,
         users::post_user_mfa_token,
+        recovery::post_recovery_codes,
+        recovery::get_recovery_codes,
+        recovery::delete_recovery_codes,
+        recovery::post_recover_start,
+        recovery::post_recover_verify,
         users::get_user_sessions,
         users::delete_user_sessions,
         users::put_user_picture,
@@ -421,6 +426,13 @@ use utoipa::{OpenApi, openapi};
             OtpAuthStartResponse,
             OtpLoginFinishResponse,
             PasskeyResponse,
+            RecoveryCodesResponse,
+            RecoveryCodesInfoResponse,
+            RecoveryCodesGenerateRequest,
+            RecoverStartRequest,
+            RecoverStartResponse,
+            RecoverVerifyRequest,
+            RecoverVerifyResponse,
             UserSessionResponse,
             UserSessionsDeleteRequest,
             PasskeyHint,

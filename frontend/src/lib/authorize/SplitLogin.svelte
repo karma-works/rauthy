@@ -16,6 +16,7 @@
         email = $bindable(),
         loadingCard,
         disabled,
+        recoveryEnabled = false,
         errExisting,
         errNew,
         onExisting,
@@ -28,6 +29,8 @@
         /** the card whose login is running */
         loadingCard?: SplitCard;
         disabled: boolean;
+        /** `webauthn.recovery_codes` */
+        recoveryEnabled?: boolean;
         errExisting: string;
         errNew: string;
         onExisting: () => void;
@@ -127,7 +130,15 @@
         </section>
     </div>
 
-    <p class="lost">{t.splitLogin.lost}</p>
+    <p class="lost">
+        {#if recoveryEnabled}
+            {t.splitLogin.lostPrefix}
+            <a href="/auth/v1/users/recover">{t.splitLogin.lostLink}</a>
+            {t.splitLogin.lostSuffix}
+        {:else}
+            {t.splitLogin.lost}
+        {/if}
+    </p>
 </div>
 
 <style>
@@ -324,6 +335,10 @@
 
     .or {
         display: none;
+    }
+
+    .lost a {
+        color: hsl(var(--action));
     }
 
     .lost {

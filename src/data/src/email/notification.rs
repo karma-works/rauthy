@@ -1,4 +1,5 @@
 use crate::email::i18n::passkey_notification::I18nPasskeyNotification;
+use crate::email::i18n::recovery_notification::I18nRecoveryNotification;
 use crate::email::mailer::{EMail, EmailType};
 use crate::email::mailer_callback::EMailCallback;
 use crate::entity::theme::ThemeCssFull;
@@ -104,6 +105,45 @@ async fn send_email_passkey_notification(user: &User, notification: &Notificatio
     .await;
 }
 
+/// The second step of redeeming a recovery code, see `RecoveryChallenge`.
+pub async fn send_email_recovery_mail_code(user: &User, mail_code: &str, minutes: i64) {
+    let notification = recovery_mail_code_notification(&user.language, mail_code, minutes);
+    send_email_passkey_notification(user, &notification).await;
+}
+
+pub async fn send_email_recovery_codes_regenerated(user: &User) {
+    let notification = recovery_notification(I18nRecoveryNotification::regenerated(&user.language));
+    send_email_passkey_notification(user, &notification).await;
+}
+
+/// Sent once when invalid recovery codes have been entered repeatedly for the account.
+pub async fn send_email_recovery_failures(user: &User) {
+    let notification = recovery_notification(I18nRecoveryNotification::failures(&user.language));
+    send_email_passkey_notification(user, &notification).await;
+}
+
+fn recovery_mail_code_notification(lang: &Language, mail_code: &str, minutes: i64) -> Notification {
+    let i18n = I18nRecoveryNotification::mail_code(lang);
+    Notification {
+        level: NotificationLevel::Warning,
+        head: i18n.head.to_string(),
+        row_1: i18n
+            .row_1
+            .replace("{code}", mail_code)
+            .replace("{minutes}", &minutes.to_string()),
+        row_2: Some(i18n.row_2.to_string()),
+    }
+}
+
+fn recovery_notification(i18n: I18nRecoveryNotification) -> Notification {
+    Notification {
+        level: NotificationLevel::Warning,
+        head: i18n.head.to_string(),
+        row_1: i18n.row_1.to_string(),
+        row_2: Some(i18n.row_2.to_string()),
+    }
+}
+
 fn passkey_removed_notification(lang: &Language, passkey_name: &str) -> Notification {
     passkey_notification(I18nPasskeyNotification::removed(lang), passkey_name)
 }
@@ -124,6 +164,17 @@ fn passkey_notification(i18n: I18nPasskeyNotification, passkey_name: &str) -> No
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recovery_mail_code_email_contains_the_code() {
+        let n = recovery_mail_code_notification(&Language::De, "12345678", 10);
+        assert!(n.row_1.contains("12345678"), "{}", n.row_1);
+        assert!(n.row_1.contains("10 Minuten"), "{}", n.row_1);
+        assert!(!n.row_1.contains('{'), "{}", n.row_1);
+        // other languages fall back to English
+        let n = recovery_mail_code_notification(&Language::Fr, "12345678", 10);
+        assert!(n.row_1.contains("valid for 10 minutes"), "{}", n.row_1);
+    }
 
     #[test]
     fn passkey_removed_email_identifies_the_key_and_warns_the_user() {

@@ -75,6 +75,8 @@ pub enum HtmlTemplate {
     PasskeyAccountsNoPassword(bool),
     PasskeyRegType,
     PasswordReset(TplPasswordReset),
+    /// `webauthn.recovery_codes`
+    RecoveryCodes,
     RestrictedEmailDomain(String),
     StatusCode(StatusCode),
     UserValues,
@@ -107,6 +109,7 @@ impl HtmlTemplate {
             Self::PasskeyAccountsNoPassword(_) => "tpl_passkey_accounts_no_password",
             Self::PasskeyRegType => "tpl_passkey_reg_type",
             Self::PasswordReset(_) => "tpl_password_reset",
+            Self::RecoveryCodes => "tpl_recovery_codes",
             Self::RestrictedEmailDomain(_) => "tpl_restricted_email_domain",
             Self::StatusCode(_) => "tpl_status_code",
             Self::UserValues => "tpl_user_values_config",
@@ -144,6 +147,7 @@ impl HtmlTemplate {
             Self::PasskeyAccountsNoPassword(i) => i.to_string(),
             Self::PasskeyRegType => RauthyConfig::get().vars.webauthn.passkey_reg_type_str(),
             Self::PasswordReset(i) => serde_json::to_string(i).unwrap(),
+            Self::RecoveryCodes => RauthyConfig::get().vars.webauthn.recovery_codes.to_string(),
             Self::StatusCode(i) => i.to_string(),
             Self::RestrictedEmailDomain(i) => i.to_string(),
             Self::UserValues => {
@@ -1066,6 +1070,32 @@ impl UserRevokeHtml<'_> {
         }
         .render()
         .expect("rendering revoke.html")
+    }
+}
+
+#[derive(Default, Template)]
+#[template(path = "html/users/recover.html")]
+pub struct UserRecoverHtml<'a> {
+    lang: &'a str,
+    client_id: &'a str,
+    theme_ts: i64,
+    templates: &'a [HtmlTemplate],
+}
+
+impl UserRecoverHtml<'_> {
+    pub fn build(lang: &Language, theme_ts: i64) -> String {
+        UserRecoverHtml {
+            lang: lang.as_str(),
+            client_id: "rauthy",
+            theme_ts,
+            templates: &[
+                HtmlTemplate::LegalLinks,
+                HtmlTemplate::PasskeyRegType,
+                HtmlTemplate::AskSharedDevice,
+            ],
+        }
+        .render()
+        .expect("rendering recover.html")
     }
 }
 

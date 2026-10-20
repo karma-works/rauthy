@@ -42,7 +42,7 @@ after(async () => browser?.close());
  * Opens the login page with mocked backend responses. `authorize` answers the final
  * `POST /oidc/authorize` and receives its JSON body.
  */
-async function openLogin(t, { layout, width = 1280, height = 800, authorize }) {
+async function openLogin(t, { layout, width = 1280, height = 800, authorize, recovery = false }) {
     const context = await browser.newContext({
         serviceWorkers: 'block',
         locale: 'de-DE',
@@ -72,6 +72,7 @@ async function openLogin(t, { layout, width = 1280, height = 800, authorize }) {
             help_url: 'https://example.com/hilfe',
         }),
         tpl_login_layout: layout,
+        tpl_recovery_codes: String(recovery),
     };
     await context.route('**/*', async route => {
         const request = route.request();
@@ -359,4 +360,25 @@ test('default layout keeps the upstream login form', async t => {
     await page.getByRole('textbox', { name: 'E-Mail' }).waitFor();
     assert.equal(await page.getByRole('heading', { name: 'Anmelden bei ArztAgent' }).count(), 0);
     assert.equal(await page.getByRole('button', { name: 'Mit Passkey anmelden' }).count(), 0);
+});
+
+test('split layout: the recovery link only shows with recovery codes', async t => {
+    for (const recovery of [false, true]) {
+        const { page } = await openLogin(t, {
+            layout: 'split',
+            recovery,
+            authorize: () => assert.fail('must not log in'),
+        });
+        await page.getByRole('heading', { name: 'Anmelden bei ArztAgent' }).waitFor();
+        const link = page.getByRole('link', { name: 'Mit Wiederherstellungscode fortfahren' });
+        if (recovery) {
+            await link.waitFor();
+            assert.equal(await link.getAttribute('href'), '/auth/v1/users/recover');
+        } else {
+            await page
+                .getByText('Passkey verloren? Wenden Sie sich an Ihre Administration.')
+                .waitFor();
+            assert.equal(await link.count(), 0);
+        }
+    }
 });

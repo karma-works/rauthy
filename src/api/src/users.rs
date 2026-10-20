@@ -2145,6 +2145,9 @@ pub async fn delete_webauthn(
     PasskeyEntity::delete(id, name.clone()).await?;
 
     if let Some(user) = notify_user {
+        // A reset by an admin must not leave a way back in for whoever holds the old codes,
+        // also not after the feature has been switched off and on again.
+        crate::recovery::purge_for_user(&user).await?;
         send_email_passkey_removed(&user, &name).await;
     }
 
@@ -2248,7 +2251,8 @@ pub async fn post_webauthn_reg_finish(
         let id = id.into_inner();
         principal.is_user(&id)?;
 
-        webauthn::register::reg_finish(id, payload, false).await?;
+        webauthn::register::reg_finish(id, payload, webauthn::register::RegContext::Session)
+            .await?;
 
         // The registration ceremony is a fresh proof of possession for this very session, and
         // starting it already required an `MfaModToken`. Upgrade the session in place so the user
