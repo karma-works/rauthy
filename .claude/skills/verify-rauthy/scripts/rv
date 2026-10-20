@@ -1,0 +1,192 @@
+#!/usr/bin/env bash
+# rv - drive a disposable Rauthy instance for verification.
+# Usage: rv <launch|doctor|login|api|browser|stop|cleanup|env> [args]
+# Run `rv help` for details. All state lives under $RV_ROOT/$RV_RUN.
+set -euo pipefail
+
+SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO="$(cd "$SKILL_DIR/../../.." && pwd)"
+RV_ROOT="${RV_ROOT:-/tmp/rauthy-verify}"
+RV_RUN="${RV_RUN:-default}"
+RV_PORT="${RV_PORT:-8091}"
+RUN_DIR="$RV_ROOT/$RV_RUN"
+INST="$RUN_DIR/instance"
+EVID="$RUN_DIR/evidence"
+BASE="http://localhost:$RV_PORT"
+API="$BASE/auth/v1"
+BIN="$REPO/target/debug/rauthy"
+RAFT_PORT=$((RV_PORT + 100))
+HQL_API_PORT=$((RV_PORT + 200))
+
+ADMIN_EMAIL="${RV_ADMIN_EMAIL:-init_admin@localhost}"
+ADMIN_PASSWORD="${RV_ADMIN_PASSWORD:-123SuperSafe}"
+
+die() { echo "rv: $*" >&2; exit 1; }
+port_busy() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
+our_pid() { [[ -f "$INST/pid" ]] && kill -0 "$(cat "$INST/pid")" 2>/dev/null && cat "$INST/pid"; }
+
+cmd_env() {
+  cat <<EOF
+RV_RUN=$RV_RUN
+RV_PORT=$RV_PORT
+RUN_DIR=$RUN_DIR
+EVIDENCE=$EVID
+BASE_URL=$BASE
+API_URL=$API
+LOG=$INST/rauthy.log
+EOF
+}
+
+cmd_launch() {
+  [[ -n "$(our_pid || true)" ]] && die "run '$RV_RUN' already up (pid $(our_pid)); use 'rv doctor'"
+  for p in "$RV_PORT" "$RAFT_PORT" "$HQL_API_PORT"; do
+    port_busy "$p" && die "port $p is busy and not ours - pick another RV_PORT"
+  done
+  [[ -f "$REPO/.env" ]] && echo "rv: WARNING $REPO/.env exists and overrides config - check it" >&2
+
+  # Askama templates and static UI are compiled in; without them the build fails.
+  if [[ ! -d "$REPO/templates/html" || ! -d "$REPO/static/v1" ]]; then
+    echo "rv: extracting pre-built UI archive (same as 'just extract-ui-archive')"
+    (cd "$REPO" && mkdir -p static templates \
+      && tar -xf assets/static_html/static_v1.tar.gz static/ \
+      && tar -xf assets/static_html/templates_html.tar.gz templates/)
+  fi
+  if [[ "${RV_SKIP_BUILD:-0}" != 1 ]]; then
+    echo "rv: cargo build --locked (incremental; first build takes ~10-20 min)"
+    (cd "$REPO" && cargo build --locked)
+  fi
+  [[ -x "$BIN" ]] || die "binary missing: $BIN"
+
+  mkdir -p "$INST/data" "$EVID"
+  # Run from the repo root: config-test.toml and bootstrap/ are resolved relative to cwd.
+  # No subshell: $! must be the rauthy pid itself (env/nohup exec into it), and the
+  # background process must not inherit our stdout, or callers piping `rv launch` hang.
+  cd "$REPO"
+  nohup env \
+    PUB_URL="localhost:$RV_PORT" RP_ORIGIN="$BASE" LISTEN_PORT_HTTP="$RV_PORT" \
+    LISTEN_PORT_HTTPS="$((RV_PORT + 300))" \
+    HQL_NODES="1 localhost:$RAFT_PORT localhost:$HQL_API_PORT" \
+    HQL_DATA_DIR="$INST/data" \
+    "$BIN" serve -c config-test.toml --test </dev/null >"$INST/rauthy.log" 2>&1 &
+  echo $! >"$INST/pid"
+  echo "rv: started pid $(cat "$INST/pid"), log $INST/rauthy.log"
+
+  # Ready = ping answers AND seeded admin can obtain a token (migrations + dev data done).
+  for _ in $(seq 1 120); do
+    kill -0 "$(cat "$INST/pid")" 2>/dev/null || { tail -40 "$INST/rauthy.log"; die "rauthy exited during startup"; }
+    if curl -fsS "$API/ping" >/dev/null 2>&1 && token_ok; then
+      echo "rv: READY at $BASE"; cmd_env; return 0
+    fi
+    sleep 1
+  done
+  tail -40 "$INST/rauthy.log"; die "not ready after 120s"
+}
+
+token_ok() {
+  curl -fsS -o /dev/null "$API/oidc/token" \
+    -d grant_type=password -d client_id=init_client \
+    -d client_secret=LjERi0WSEz1E9OY9KFJaMjlwV1Uf3nuIuOUnJnoJQNm2i7YMjTDMy4PbAKnYRgFy \
+    --data-urlencode "username=$ADMIN_EMAIL" --data-urlencode "password=$ADMIN_PASSWORD"
+}
+
+cmd_doctor() {
+  local ok=1 pid
+  pid="$(our_pid || true)"
+  if [[ -n "$pid" ]]; then echo "OK   process pid $pid (started by run '$RV_RUN')"
+  else echo "FAIL no process for run '$RV_RUN' (rv launch)"; ok=0; fi
+  if [[ -n "$pid" ]] && command -v ss >/dev/null; then
+    if ss -ltnp 2>/dev/null | grep ":$RV_PORT " | grep -q "pid=$pid,"; then
+      echo "OK   port $RV_PORT owned by pid $pid"
+    else echo "WARN cannot confirm port $RV_PORT is owned by pid $pid"; fi
+  fi
+  if curl -fsS "$API/ping" >/dev/null 2>&1; then echo "OK   $API/ping"
+  else echo "FAIL $API/ping unreachable"; ok=0; fi
+  local iss
+  iss="$(curl -fsS "$API/.well-known/openid-configuration" 2>/dev/null | jq -r .issuer 2>/dev/null || true)"
+  if [[ "$iss" == "$API/" || "$iss" == "$API" ]]; then echo "OK   issuer $iss"
+  else echo "FAIL issuer '$iss' != $API/ (wrong instance or PUB_URL)"; ok=0; fi
+  local ver
+  ver="$(curl -fsS "$API/version" 2>/dev/null | jq -r .current 2>/dev/null || true)"
+  echo "INFO version ${ver:-unknown} (Cargo.toml: $(grep -m1 '^version' "$REPO/Cargo.toml" | cut -d'"' -f2))"
+  if [[ -n "$pid" && "$BIN" -nt "$INST/pid" ]]; then
+    echo "WARN binary rebuilt after launch - instance runs old code; rv stop && rv launch"
+  fi
+  if token_ok; then echo "OK   admin '$ADMIN_EMAIL' can get a token (seed data present)"
+  else echo "FAIL admin token grant failed (seed data / password)"; ok=0; fi
+  if [[ -f "$RUN_DIR/session.json" ]]; then
+    local code
+    code="$(curl -s -o /dev/null -w '%{http_code}' "$API/oidc/sessioninfo" \
+      -H "Cookie: $(jq -r .cookie "$RUN_DIR/session.json")")"
+    [[ "$code" == 200 ]] && echo "OK   stored session valid" || echo "WARN stored session invalid ($code) - rv login"
+  fi
+  [[ $ok == 1 ]] && echo "DOCTOR: healthy" || { echo "DOCTOR: unhealthy"; return 1; }
+}
+
+cmd_login() {
+  local email="${1:-$ADMIN_EMAIL}" pass="${2:-$ADMIN_PASSWORD}"
+  python3 -I "$SKILL_DIR/scripts/rv_login.py" "$API" "$email" "$pass" "$RUN_DIR/session.json"
+}
+
+cmd_api() {
+  # rv api METHOD /path [json-body]   -> prints status line to stderr, body to stdout
+  [[ $# -ge 2 ]] || die "usage: rv api METHOD /path [json]"
+  local m="$1" p="$2" body="${3:-}"
+  [[ -f "$RUN_DIR/session.json" ]] || die "no session - run 'rv login' first"
+  local args=(-sS -X "$m" "$API$p" -H "Cookie: $(jq -r .cookie "$RUN_DIR/session.json")"
+    -H "x-csrf-token: $(jq -r .csrf "$RUN_DIR/session.json")" -w '\n%{http_code}\n')
+  [[ -n "$body" ]] && args+=(-H 'Content-Type: application/json' --data "$body")
+  local out code
+  out="$(curl "${args[@]}")"
+  code="$(tail -n1 <<<"$out")"
+  echo "HTTP $code $m $p" >&2
+  sed '$d' <<<"$out"
+  [[ "$code" =~ ^2 ]]
+}
+
+cmd_browser() {
+  # rv browser <script.mjs> [args]  - runs a Playwright script with RV_* env
+  [[ $# -ge 1 ]] || die "usage: rv browser <script.mjs> [args]"
+  local script="$1"; shift
+  [[ -f "$script" ]] || script="$SKILL_DIR/scripts/$script"
+  mkdir -p "$EVID"
+  # ESM ignores NODE_PATH: hand the script an absolute path to a Playwright install.
+  local pw="$REPO/frontend/node_modules/playwright"
+  [[ -f "$pw/index.mjs" ]] || pw="$(npm root -g)/playwright"
+  [[ -f "$pw/index.mjs" ]] || die "playwright not found (frontend/node_modules or npm -g)"
+  RV_PLAYWRIGHT="$pw/index.mjs" RV_BASE_URL="$BASE" RV_EVIDENCE="$EVID" \
+    RV_ADMIN_EMAIL="$ADMIN_EMAIL" RV_ADMIN_PASSWORD="$ADMIN_PASSWORD" \
+    node "$script" "$@"
+}
+
+cmd_stop() {
+  local pid
+  pid="$(our_pid || true)"
+  if [[ -n "$pid" ]]; then
+    kill "$pid"
+    for _ in $(seq 1 15); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
+    kill -0 "$pid" 2>/dev/null && kill -9 "$pid"
+    echo "rv: stopped pid $pid"
+  else echo "rv: nothing running for run '$RV_RUN'"; fi
+  rm -f "$INST/pid"
+}
+
+cmd_cleanup() {
+  cmd_stop
+  # Remove instance state (DB, logs, session); KEEP evidence.
+  [[ -n "$INST" && "$INST" == "$RV_ROOT/"* ]] && rm -rf "$INST" "$RUN_DIR/session.json"
+  echo "rv: instance removed; evidence kept in $EVID"
+  ls -1 "$EVID" 2>/dev/null | sed 's/^/  /' || true
+}
+
+case "${1:-help}" in
+  launch) shift; cmd_launch "$@" ;;
+  doctor) shift; cmd_doctor "$@" ;;
+  login) shift; cmd_login "$@" ;;
+  api) shift; cmd_api "$@" ;;
+  browser) shift; cmd_browser "$@" ;;
+  stop) shift; cmd_stop ;;
+  cleanup) shift; cmd_cleanup ;;
+  env) cmd_env ;;
+  *) sed -n '2,4p' "$0"; echo "Commands: launch doctor login api browser stop cleanup env"
+     echo "Env: RV_RUN (run id) RV_PORT (default 8091) RV_ROOT (default /tmp/rauthy-verify)" ;;
+esac
