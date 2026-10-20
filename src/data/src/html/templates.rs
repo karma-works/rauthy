@@ -241,14 +241,17 @@ pub struct DeviceHtml<'a> {
 }
 
 impl DeviceHtml<'_> {
-    pub fn build(lang: &Language, theme_ts: i64) -> String {
+    pub fn build(lang: &Language, theme_ts: i64, logo_updated: Option<i64>) -> String {
         let res = DeviceHtml {
             lang: lang.as_str(),
             client_id: "rauthy",
             theme_ts,
-            templates: &[HtmlTemplate::DeviceUserCodeLength(
-                RauthyConfig::get().vars.device_grant.user_code_length as u8,
-            )],
+            templates: &[
+                HtmlTemplate::DeviceUserCodeLength(
+                    RauthyConfig::get().vars.device_grant.user_code_length as u8,
+                ),
+                HtmlTemplate::ClientLogoUpdated(logo_updated),
+            ],
         };
 
         res.render().unwrap()
@@ -944,7 +947,12 @@ pub struct PwdResetHtml<'a> {
 impl PwdResetHtml<'_> {
     // If the email is Some(_), this means that the user has webauthn enabled and does not need
     // to provide the email manually
-    pub fn build(lang: &Language, theme_ts: i64, template: TplPasswordReset) -> String {
+    pub fn build(
+        lang: &Language,
+        theme_ts: i64,
+        template: TplPasswordReset,
+        logo_updated: Option<i64>,
+    ) -> String {
         let res = PwdResetHtml {
             lang: lang.as_str(),
             client_id: "rauthy",
@@ -953,6 +961,7 @@ impl PwdResetHtml<'_> {
                 HtmlTemplate::PasswordReset(template),
                 HtmlTemplate::PasskeyRegType,
                 HtmlTemplate::AskSharedDevice,
+                HtmlTemplate::ClientLogoUpdated(logo_updated),
             ],
         };
 

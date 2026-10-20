@@ -108,6 +108,7 @@ impl Logo {
         DB::hql()
             .delete(Cache::App, Self::cache_idx_updated(typ, id))
             .await?;
+        Self::clear_html_cache(typ, id).await?;
 
         Ok(())
     }
@@ -126,6 +127,7 @@ impl Logo {
         DB::hql()
             .delete(Cache::App, Self::cache_idx_updated(&LogoType::Client, id))
             .await?;
+        Self::clear_html_cache(&LogoType::Client, id).await?;
 
         Ok(())
     }
@@ -158,6 +160,7 @@ impl Logo {
         DB::hql()
             .delete(Cache::App, Self::cache_idx_updated(typ, id))
             .await?;
+        Self::clear_html_cache(typ, id).await?;
 
         Ok(())
     }
@@ -442,6 +445,7 @@ SET content_type = $3, data = $4, updated = $5"#
                 AuthProviderTemplate::update_cache().await?;
             }
         }
+        Self::clear_html_cache(typ, &self.id).await?;
 
         Ok(())
     }
@@ -603,6 +607,15 @@ impl Logo {
     }
 
     #[inline]
+    /// Cached pages that are not bound to a client (account, setup, password reset, device) show
+    /// the logo of the `rauthy` client with its `updated` timestamp.
+    async fn clear_html_cache(typ: &LogoType, id: &str) -> Result<(), ErrorResponse> {
+        if typ == &LogoType::Client && id == "rauthy" {
+            DB::hql().clear_cache(Cache::Html).await?;
+        }
+        Ok(())
+    }
+
     fn cache_idx_updated(typ: &LogoType, id: &str) -> String {
         match typ {
             LogoType::Client => format!("{IDX_CLIENT_LOGO}_{id}_updated"),

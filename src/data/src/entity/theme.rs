@@ -1,4 +1,5 @@
 use crate::database::{Cache, DB};
+use crate::rauthy_config::RauthyConfig;
 use chrono::Utc;
 use hiqlite::macros::params;
 use rauthy_api_types::themes::ThemeRequestResponse;
@@ -268,7 +269,7 @@ impl ThemeCssFull {
 
     pub async fn plain(client_id: String) -> Result<String, ErrorResponse> {
         let slf = Self::find_with_fallback(client_id).await?;
-        let res = slf.as_css()?;
+        let res = slf.as_css(&RauthyConfig::get().vars.theme.font_css())?;
         Ok(res)
     }
 
@@ -316,7 +317,8 @@ impl ThemeCssFull {
         Ok(compressed)
     }
 
-    pub fn as_css(&self) -> Result<String, ErrorResponse> {
+    /// `font_css` is appended, see `VarsTheme::font_css()`.
+    pub fn as_css(&self, font_css: &str) -> Result<String, ErrorResponse> {
         let mut s = String::with_capacity(1100);
 
         write!(s, "body{{")?;
@@ -337,6 +339,8 @@ impl ThemeCssFull {
         self.light.append_css(&mut s)?;
         write!(s, "}}")?;
         write!(s, "}}")?;
+
+        s.push_str(font_css);
 
         Ok(s)
     }
@@ -497,6 +501,6 @@ mod tests {
     #[test]
     fn test_css_fmt() {
         let theme = ThemeCssFull::default();
-        theme.as_css().unwrap();
+        theme.as_css("").unwrap();
     }
 }

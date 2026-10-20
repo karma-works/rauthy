@@ -2686,6 +2686,24 @@ swagger_ui_enable = false
 #expires = 'Link expires:'
 #footer = ''
 
+[theme]
+# A font for all pages. The family name is used in the generated theme
+# CSS. Only letters, digits, ' ', '-' and '_' are allowed.
+# Without `font_file`, the font must be installed on the device.
+#
+# default: not set
+# overwritten by: THEME_FONT_FAMILY
+#font_family = 'Geist'
+
+# Path to a WOFF2 file (max. 2 MiB) with the font for `font_family`.
+# Rauthy reads it at startup and serves it itself at
+# `/auth/v1/theme_font`, so that no page loads a font from another
+# origin. A variable font covers all weights.
+#
+# default: not set
+# overwritten by: THEME_FONT_FILE
+#font_file = '/app/fonts/Geist-Variable.woff2'
+
 [tls]
 ## UI + API TLS
 

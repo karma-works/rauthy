@@ -1,4 +1,5 @@
 <script lang="ts">
+    import CustomLogo from '$lib/CustomLogo.svelte';
     import { normalizeClientUri, redirectToLogout } from '$utils/helpers';
     import AccInfo from '$lib5/account/AccInfo.svelte';
     import AccEdit from '$lib5/account/AccEdit.svelte';
@@ -170,6 +171,7 @@
 <Template id={TPL_PASSKEY_ACCOUNTS_NO_PASSWORD} bind:value={passkeyAccountsNoPassword} />
 
 {#snippet header()}
+    <CustomLogo height="40px" />
     <h3>{`${user.given_name || ''} ${user.family_name || ''}`}</h3>
 {/snippet}
 

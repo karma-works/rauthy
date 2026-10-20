@@ -276,6 +276,7 @@ pub struct Vars {
     pub http_client: VarsHttpClient,
     pub i18n: VarsI18n,
     pub legal: VarsLegal,
+    pub theme: VarsTheme,
     pub lifetimes: VarsLifetimes,
     pub logging: VarsLogging,
     pub matrix: VarsMatrix,
@@ -551,6 +552,7 @@ impl Default for Vars {
                 root_ca_bundle: None,
             },
             legal: VarsLegal::default(),
+            theme: VarsTheme::default(),
             i18n: VarsI18n {
                 filter_lang_common: vec![
                     "de".into(),
@@ -1358,6 +1360,7 @@ impl Vars {
         slf.parse_pow(&mut table);
         slf.parse_scim(&mut table);
         slf.parse_server(&mut table);
+        slf.parse_theme(&mut table);
         slf.parse_sponsor(&mut table);
         slf.parse_suspicious_requests(&mut table);
         slf.parse_templates(&mut table);
@@ -3054,6 +3057,24 @@ impl Vars {
         check_table_empty(table, "legal");
     }
 
+    fn parse_theme(&mut self, table: &mut toml::Table) {
+        let mut table = t_table(table, "theme");
+
+        if let Some(v) = t_str(&mut table, "theme", "font_family", "THEME_FONT_FAMILY") {
+            self.theme.font_family = Some(validate_font_family(v));
+        }
+        if let Some(path) = t_str(&mut table, "theme", "font_file", "THEME_FONT_FILE") {
+            let bytes = std::fs::read(&path)
+                .unwrap_or_else(|err| panic!("Cannot read `theme.font_file` {path}: {err}"));
+            self.theme.font_woff2 = Some(validate_font_woff2(&path, bytes));
+        }
+        if self.theme.font_woff2.is_some() && self.theme.font_family.is_none() {
+            panic!("`theme.font_file` needs `theme.font_family`");
+        }
+
+        check_table_empty(table, "theme");
+    }
+
     fn parse_lifetimes(&mut self, table: &mut toml::Table) {
         let mut table = t_table(table, "lifetimes");
 
@@ -4500,6 +4521,62 @@ pub struct VarsLegal {
     pub help_url: Option<String>,
 }
 
+/// A font for all pages. Rauthy serves the file itself, so that no page loads a font from another
+/// origin.
+#[derive(Debug, Default)]
+pub struct VarsTheme {
+    pub font_family: Option<String>,
+    /// The content of `theme.font_file`
+    pub font_woff2: Option<Vec<u8>>,
+}
+
+impl VarsTheme {
+    /// CSS appended to every theme, empty without a configured font.
+    pub fn font_css(&self) -> String {
+        let Some(family) = &self.font_family else {
+            return String::default();
+        };
+        let mut css = String::with_capacity(320);
+        if self.font_woff2.is_some() {
+            css.push_str(&format!(
+                "@font-face{{font-family:\"{family}\";src:url(\"/auth/v1/theme_font\") \
+                format(\"woff2\");font-weight:100 900;font-display:swap;}}"
+            ));
+        }
+        // `html body` wins over the later loaded `body` rule of the UI; `.font-mono` stays
+        css.push_str(&format!(
+            "html body,html .font-default,html .font-label{{font-family:\"{family}\",system-ui,\
+            -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;}}\
+            html body button,html body input,html body select,html body textarea\
+            {{font-family:inherit;}}"
+        ));
+        css
+    }
+}
+
+/// The family ends up in CSS, so only plain names are accepted.
+fn validate_font_family(family: String) -> String {
+    let ok = !family.is_empty()
+        && family.len() <= 64
+        && family
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == ' ' || c == '-' || c == '_');
+    if !ok {
+        panic!("`theme.font_family` may only contain letters, digits, ' ', '-' and '_': {family}");
+    }
+    family
+}
+
+fn validate_font_woff2(path: &str, bytes: Vec<u8>) -> Vec<u8> {
+    if !bytes.starts_with(b"wOF2") {
+        panic!("`theme.font_file` {path} is not a WOFF2 font");
+    }
+    if bytes.len() > 2 * 1024 * 1024 {
+        panic!("`theme.font_file` {path} is larger than 2 MiB");
+    }
+    bytes
+}
+
 /// The links end up in an `href`, so only plain web links are accepted.
 fn validate_legal_url(key: &str, url: String) -> String {
     if !(url.starts_with("https://") || url.starts_with("http://")) {
@@ -5234,6 +5311,42 @@ mod tests {
             help_url = 'javascript:alert(1)'
             "#,
         );
+    }
+
+    #[test]
+    fn test_theme_font_css() {
+        assert_eq!(VarsTheme::default().font_css(), "");
+
+        let theme = VarsTheme {
+            font_family: Some(validate_font_family("Geist".to_string())),
+            font_woff2: Some(validate_font_woff2("geist.woff2", b"wOF2rest".to_vec())),
+        };
+        let css = theme.font_css();
+        assert!(
+            css.starts_with("@font-face{font-family:\"Geist\";src:url(\"/auth/v1/theme_font\")")
+        );
+        assert!(
+            css.contains("html body,html .font-default,html .font-label{font-family:\"Geist\"")
+        );
+
+        // a locally installed font without a file
+        let theme = VarsTheme {
+            font_family: Some("Inter".to_string()),
+            font_woff2: None,
+        };
+        assert!(theme.font_css().starts_with("html body,"));
+    }
+
+    #[test]
+    #[should_panic(expected = "theme.font_family")]
+    fn test_theme_font_family_rejects_css() {
+        validate_font_family("Geist\";}body{background:red".to_string());
+    }
+
+    #[test]
+    #[should_panic(expected = "not a WOFF2 font")]
+    fn test_theme_font_file_must_be_woff2() {
+        validate_font_woff2("x.ttf", b"\0\x01\0\0".to_vec());
     }
 
     fn parse_access(toml_src: &str) -> Vars {

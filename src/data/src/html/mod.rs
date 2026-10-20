@@ -157,6 +157,9 @@ impl HtmlCached {
                         ),
                         HtmlTemplate::LegalLinks,
                         HtmlTemplate::AskSharedDevice,
+                        HtmlTemplate::ClientLogoUpdated(
+                            Logo::find_updated("rauthy", &LogoType::Client).await?,
+                        ),
                     ],
                 )
             }
@@ -180,7 +183,10 @@ impl HtmlCached {
             Self::ConfigEncryption => AdminConfigEncryptionHtml::build(&lang, theme_ts),
             Self::ConfigJwks => AdminConfigJwksHtml::build(&lang, theme_ts),
             Self::ConfigPolicy => AdminConfigPolicyHtml::build(&lang, theme_ts),
-            Self::Device => DeviceHtml::build(&lang, theme_ts),
+            Self::Device => {
+                let logo_updated = Logo::find_updated("rauthy", &LogoType::Client).await?;
+                DeviceHtml::build(&lang, theme_ts, logo_updated)
+            }
             Self::Docs => AdminDocsHtml::build(&lang, theme_ts),
             Self::FedCM => FedCMHtml::build(&lang, theme_ts),
             Self::Index => IndexHtml::build(&lang, theme_ts),

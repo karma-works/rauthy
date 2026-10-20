@@ -7,6 +7,7 @@ use rauthy_api_types::users::{
 use rauthy_common::constants::{PWD_CSRF_HEADER, PWD_RESET_COOKIE};
 use rauthy_common::utils::{get_rand, real_ip_from_req};
 use rauthy_data::api_cookie::ApiCookie;
+use rauthy_data::entity::logos::{Logo, LogoType};
 use rauthy_data::entity::magic_links::{MagicLink, MagicLinkUsage};
 use rauthy_data::entity::password::PasswordPolicy;
 use rauthy_data::entity::pwd_exp_mails::PasswordExpMail;
@@ -48,7 +49,12 @@ pub async fn handle_get_pwd_reset<'a>(
             password_policy: PasswordPolicyResponse::from(password_policy),
             user_id,
         };
-        PwdResetHtml::build(&lang, ThemeCssFull::find_theme_ts_rauthy().await?, tpl)
+        PwdResetHtml::build(
+            &lang,
+            ThemeCssFull::find_theme_ts_rauthy().await?,
+            tpl,
+            Logo::find_updated("rauthy", &LogoType::Client).await?,
+        )
     };
 
     // generate a cookie value and save it to the magic link

@@ -1,4 +1,5 @@
 <script lang="ts">
+    import CustomLogo from '$lib/CustomLogo.svelte';
     import { onMount } from 'svelte';
     import { redirectToLogin } from '$utils/helpers';
     import LangSelector from '$lib5/LangSelector.svelte';
@@ -106,6 +107,7 @@
     <ContentCenter>
         {#if session}
             <div class="container">
+                <CustomLogo />
                 <div class="name">
                     <h2>{t.device.title}</h2>
                 </div>
