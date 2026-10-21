@@ -68,6 +68,11 @@ pub async fn purge_expired_generated_secrets() -> Result<(), ErrorResponse> {
 }
 
 /// Initializes an empty production database for a new deployment
+/// Fork extension: see `api_key::sync_legacy_config_api_key` (`BOOTSTRAP_API_KEY_SYNC`).
+pub async fn sync_bootstrap_api_key() -> Result<(), ErrorResponse> {
+    api_key::sync_legacy_config_api_key().await
+}
+
 pub async fn migrate_init_prod() -> Result<(), ErrorResponse> {
     // check if the database is un-initialized by looking at the jwks table, which should be empty
     let sql = "SELECT * FROM JWKS";

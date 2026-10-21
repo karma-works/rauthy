@@ -256,6 +256,8 @@ impl DB {
         let config = RauthyConfig::get();
         if !config.vars.dev.dev_mode && config.is_primary_node {
             bootstrap::migrate_init_prod().await?;
+            // Fork: keep the bootstrap API Key's rights in sync on an existing database.
+            bootstrap::sync_bootstrap_api_key().await?;
         }
 
         if let Ok(from) = env::var("MIGRATE_DB_FROM") {

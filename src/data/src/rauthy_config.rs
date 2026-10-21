@@ -355,6 +355,7 @@ impl Default for Vars {
                 password_argon2id: None,
                 api_key: None,
                 api_key_secret: None,
+                api_key_sync: false,
                 bootstrap_dir: "bootstrap".into(),
                 generated_secrets_file: String::new().into(),
                 generated_secrets_ttl: Duration::from_secs(600),
@@ -1725,6 +1726,14 @@ impl Vars {
             "BOOTSTRAP_API_KEY_SECRET",
         ) {
             self.bootstrap.api_key_secret = Some(v);
+        }
+        if let Some(v) = t_bool(
+            &mut table,
+            "bootstrap",
+            "api_key_sync",
+            "BOOTSTRAP_API_KEY_SYNC",
+        ) {
+            self.bootstrap.api_key_sync = v;
         }
         if let Some(v) = t_str(&mut table, "bootstrap", "bootstrap_dir", "BOOTSTRAP_DIR") {
             self.bootstrap.bootstrap_dir = v.into();
@@ -4250,6 +4259,9 @@ pub struct VarsBootstrap {
     pub password_argon2id: Option<String>,
     pub api_key: Option<String>,
     pub api_key_secret: Option<String>,
+    /// Re-apply the access rights (and `exp`) of `api_key` on every start of the primary node,
+    /// not only when the database is initialized. Fork extension, default `false`.
+    pub api_key_sync: bool,
     pub bootstrap_dir: Cow<'static, str>,
     pub generated_secrets_file: Cow<'static, str>,
     pub generated_secrets_ttl: Duration,
@@ -5302,6 +5314,22 @@ mod tests {
         vars.webauthn.passkey_reg_type = vec![PasskeyRegType::Default];
         assert!(vars.webauthn.is_passkey_reg_type_allowed(false));
         assert!(!vars.webauthn.is_passkey_reg_type_allowed(true));
+    }
+
+    #[test]
+    fn test_parse_bootstrap_api_key_sync() {
+        assert!(!Vars::default().bootstrap.api_key_sync);
+
+        let mut table: toml::Table = toml::from_str(
+            r#"
+            [bootstrap]
+            api_key_sync = true
+            "#,
+        )
+        .unwrap();
+        let mut vars = Vars::default();
+        vars.parse_bootstrap(&mut table);
+        assert!(vars.bootstrap.api_key_sync);
     }
 
     fn parse_legal(toml_src: &str) -> Vars {

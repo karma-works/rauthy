@@ -475,6 +475,16 @@ Kubernetes secrets, or simply provide the whole config as one secret (my preferr
 # overwritten by: BOOTSTRAP_API_KEY_SECRET
 #api_key_secret = 'twUA2M7RZ8H3FyJHbti2AcMADPDCxDqUKbvi8FDnm3nYidwQx57Wfv6iaVTQynMh'
 
+# Fork extension (ArztAgent): re-apply the access rights and `exp`
+# of `api_key` on every start of the primary node. Without it, the
+# value is only read while an empty database is initialized, so a
+# running instance never picks up a new access group. The secret is
+# set again only if `api_key_secret` is given.
+#
+# default: false
+# overwritten by: BOOTSTRAP_API_KEY_SYNC
+#api_key_sync = false
+
 # Generated bootstrap secrets are written to this encrypted
 # local container before their matching database rows are
 # inserted. Later bootstrap phases use it for generated
