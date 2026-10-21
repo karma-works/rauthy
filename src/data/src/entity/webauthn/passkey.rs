@@ -1,5 +1,6 @@
 use crate::database::{Cache, DB};
 use crate::entity::password::PasswordPolicy;
+use crate::entity::shared_devices::SharedDeviceMember;
 use crate::entity::users::User;
 use crate::fido_mds::mds_entry::MdsEntrySimple;
 use crate::rauthy_config::RauthyConfig;
@@ -235,7 +236,11 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"#;
             txn.commit().await?;
         }
 
+        let was_last = user_email.is_some();
         Self::clear_caches_by_id_name(&user_id, user_email, &name).await?;
+        if was_last {
+            SharedDeviceMember::delete_pins_for_user(&user_id).await?;
+        }
 
         Ok(())
     }

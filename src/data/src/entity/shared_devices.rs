@@ -41,6 +41,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
 use std::net::IpAddr;
 use tracing::{error, info, warn};
+use uuid::Uuid;
 
 pub const COOKIE_SHARED_DEVICE: &str = "rauthy_shared_device";
 /// Browsers cap cookies at 400 days. The cookie is renewed with each PIN login.
@@ -382,6 +383,37 @@ ORDER BY p.name"#;
         Ok(res)
     }
 
+    /// A PIN only works after a passkey. When the last passkey of an account is gone, e.g. by a
+    /// sign-in reset, its PINs are deleted and its PIN sessions end.
+    pub async fn delete_pins_for_user(user_id: &str) -> Result<(), ErrorResponse> {
+        let sql = "UPDATE shared_device_members \
+            SET pin_hmac = NULL, pin_key_id = NULL, pin_created = NULL WHERE user_id = $1";
+        if is_hiqlite() {
+            DB::hql().execute(sql, params!(user_id.to_string())).await?;
+        } else {
+            DB::pg_execute(sql, &[&user_id]).await?;
+        }
+
+        let sql = "DELETE FROM sessions WHERE user_id = $1 AND mfa_method = 'pin' RETURNING id";
+        let sids: Vec<String> = if is_hiqlite() {
+            let rows = DB::hql()
+                .execute_returning(sql, params!(user_id.to_string()))
+                .await?;
+            let mut ids = Vec::with_capacity(rows.len());
+            for row in rows {
+                ids.push(row?.get("id"));
+            }
+            ids
+        } else {
+            DB::pg_query_rows(sql, &[&user_id], 1)
+                .await?
+                .into_iter()
+                .map(|row| row.get("id"))
+                .collect()
+        };
+        end_sessions(sids).await
+    }
+
     /// Fails with `TooManyRequests` after `PIN_GENERATE_MAX_PER_DAY` new PINs in 24 h.
     pub async fn check_generate_limit(
         practice_id: &str,
@@ -616,7 +648,8 @@ impl SharedDevice {
         let token = get_rand(64);
         let now = Utc::now().timestamp();
         let slf = Self {
-            id: get_rand(24),
+            // ArztAgent expects a UUID in `aa_shared_device`.
+            id: Uuid::new_v4().to_string(),
             practice_id,
             label,
             token_hash: hash_token(&token),

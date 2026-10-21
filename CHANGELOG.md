@@ -23,12 +23,15 @@ with a 4-digit PIN, see `rauthy_data::entity::shared_devices` and
 - A session from a PIN login only serves the login flow. It cannot open the account or admin
   pages or approve a device code. Registering a device signs the registering person out there.
 - `POST /oidc/authorize/pin` continues the `authorization_code` flow. Tokens carry
-  `amr: ["pin"]`, and every token of a session on a shared device carries `aa_shared_device`. A
-  PIN satisfies `force_mfa` only for the clients in `shared_devices.client_ids`.
+  `amr: ["pin", "swk"]`, and every token of a session on a shared device carries
+  `aa_shared_device`. A PIN satisfies `force_mfa` only for the clients in
+  `shared_devices.client_ids`.
 - Sessions on a shared device live at most 10 hours, never sign in silently, and end all other
-  sessions on the device at each login, together with the tokens of a previous user. Their refresh tokens expire after the idle timeout of the
-  practice without a refresh. Passkeys cannot be added on a shared device.
+  sessions on the device at each login, together with the tokens of a previous user. Their
+  refresh tokens expire after the idle timeout of the practice without a refresh. Passkeys cannot
+  be added on a shared device.
 - Security events per practice are kept for 90 days.
+- A device ID is a UUID. Deleting the last passkey of an account deletes its PINs as well.
 
 The new tables come with migrations for Postgres (`V39`) and Hiqlite (`44`). A database migration
 between Postgres and Hiqlite does not copy them.

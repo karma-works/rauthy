@@ -410,6 +410,15 @@ impl Display for JwtAmrValue {
 }
 
 impl JwtAmrValue {
+    /// The `amr` claim. A PIN on a registered shared device always comes with the possession of
+    /// the device's software key (RFC 8176 `swk`).
+    pub fn values(&self) -> Vec<&'static str> {
+        match self {
+            Self::Pin => vec!["pin", "swk"],
+            v => vec![v.as_str()],
+        }
+    }
+
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Pwd => "pwd",
@@ -752,6 +761,12 @@ mod tests {
             v.get("auth_time").is_none(),
             "`auth_time` must be omitted when None"
         );
+    }
+
+    #[test]
+    fn amr_values() {
+        assert_eq!(super::JwtAmrValue::Pin.values(), vec!["pin", "swk"]);
+        assert_eq!(super::JwtAmrValue::Mfa.values(), vec!["mfa"]);
     }
 
     // A custom attribute promoted to the root must never shadow the access token `amr` /

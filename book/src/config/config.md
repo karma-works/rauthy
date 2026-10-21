@@ -2622,7 +2622,7 @@ swagger_ui_enable = false
 
 # Only these clients accept a PIN, and only for them a PIN login
 # satisfies `force_mfa`. Tokens after a PIN login carry
-# `amr: ["pin"]` and the claim `aa_shared_device`.
+# `amr: ["pin", "swk"]` and the claim `aa_shared_device`.
 #
 # default: []
 # overwritten by: SHARED_DEVICES_CLIENT_IDS - one per line

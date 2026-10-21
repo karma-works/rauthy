@@ -78,9 +78,9 @@ Auf einem registrierten PC lehnt Rauthy das Anlegen von Passkeys ab.
   Rauthy begrenzt jedes Refresh-Token auf die Leerlaufzeit nach seiner frühesten Nutzung
   (gleitend, höchstens bis zum Sitzungsende). Eine Sitzung am PC meldet `/oidc/authorize` nie
   stillschweigend wieder an; `prompt=none` ergibt `login_required`.
-- Tokens: `amr = ["pin"]` nach PIN, `["mfa"]` nach Passkey; `auth_time` ist die Anmeldung. Claim
-  `aa_shared_device` (ID des PCs) im Access- und ID-Token. Ein PIN genügt `force_mfa` nur bei den
-  freigegebenen Clients.
+- Tokens: `amr = ["pin", "swk"]` nach PIN, `["mfa"]` nach Passkey; `auth_time` ist die
+  Anmeldung. Claim `aa_shared_device` (UUID des PCs) im Access- und ID-Token. Ein PIN genügt
+  `force_mfa` nur bei den freigegebenen Clients.
 - Kein MFA-Merk-Cookie am PC.
 - Eine PIN-Sitzung dient nur der Anmeldung. Konto, Admin-Oberfläche und Device-Code-Freigabe sehen
   sie nicht; dafür braucht es den Passkey.
