@@ -292,7 +292,7 @@ export const I18nZh: I18n = {
         pinHint: 'Your 4-digit PIN for the PCs of this practice',
         pinSubmit: 'Sign in',
         pinFormat: 'The PIN has four digits.',
-        wrongPin: 'Wrong PIN. {n} attempts left before the PC is locked.',
+        wrongPin: 'Wrong PIN. {n} more wrong PINs today lock the PC.',
         locked: 'This PC is locked after too many wrong PINs. A person of the practice unlocks it by signing in here with their passkey.',
         unlock: 'Unlock with passkey',
         invalidDevice:
@@ -310,7 +310,7 @@ export const I18nZh: I18n = {
         riskAck: 'I have read the notice and confirm it for the practice.',
         riskRequired: 'Please confirm the notice.',
         registerSubmit: 'Confirm with passkey and register',
-        registerDone: 'This PC is now registered as a practice PC.',
+        registerDone: 'This PC is now registered as a practice PC. You have been signed out here.',
         backToApp: 'Back to the application',
         registerNotFound:
             'The registration has expired or belongs to another account. Please start it again in the application.',

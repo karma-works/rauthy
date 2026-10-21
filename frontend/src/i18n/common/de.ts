@@ -322,7 +322,7 @@ export const I18nDe: I18n = {
         pinHint: 'Ihr vierstelliger PIN für die PCs dieser Praxis',
         pinSubmit: 'Anmelden',
         pinFormat: 'Der PIN hat vier Ziffern.',
-        wrongPin: 'PIN falsch. Noch {n} Versuche, dann wird der PC gesperrt.',
+        wrongPin: 'PIN falsch. Noch {n} falsche PINs heute, dann wird der PC gesperrt.',
         locked: 'Dieser PC ist nach zu vielen falschen PINs gesperrt. Eine Person der Praxis entsperrt ihn, indem sie sich hier mit ihrem Passkey anmeldet.',
         unlock: 'Mit Passkey entsperren',
         invalidDevice:
@@ -340,7 +340,8 @@ export const I18nDe: I18n = {
         riskAck: 'Ich habe den Hinweis gelesen und bestätige ihn für die Praxis.',
         riskRequired: 'Bitte bestätigen Sie den Hinweis.',
         registerSubmit: 'Mit Passkey bestätigen und registrieren',
-        registerDone: 'Dieser PC ist jetzt als Praxis-PC registriert.',
+        registerDone:
+            'Dieser PC ist jetzt als Praxis-PC registriert. Sie wurden in diesem Browser abgemeldet.',
         backToApp: 'Zurück zur Anwendung',
         registerNotFound:
             'Die Registrierung ist abgelaufen oder gehört zu einem anderen Konto. Bitte starten Sie sie in der Anwendung neu.',

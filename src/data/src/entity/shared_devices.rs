@@ -10,8 +10,10 @@
 //!   `SharedDeviceChallenge` for each PIN login.
 //! - PINs are unique within a practice. Only `HMAC-SHA256(derived key, practice_id, pin)` is stored,
 //!   together with the ID of the encryption key.
-//! - `PIN_MAX_FAILURES` wrong PINs in a row lock a device until a member signs in on it with a
-//!   passkey, see `on_shared_device_login`.
+//! - `PIN_MAX_FAILURES` wrong PINs within `PIN_FAILURE_WINDOW_SECS` lock a device until a member
+//!   signs in on it with a passkey, see `SharedDevice::reserve_attempt` and
+//!   `on_shared_device_login`. A correct PIN does not reset the count.
+//! - A session from a PIN login only serves the login flow, see `is_pin_session_path`.
 //! - Sessions from a registered browser carry `Session::shared_device_id`. Each login on a device
 //!   ends all other sessions there, see `Session::set_authenticated`.
 
@@ -44,8 +46,10 @@ pub const COOKIE_SHARED_DEVICE: &str = "rauthy_shared_device";
 /// Browsers cap cookies at 400 days. The cookie is renewed with each PIN login.
 pub const COOKIE_MAX_AGE_SECS: i64 = 400 * 24 * 3600;
 
-/// Wrong PINs in a row on a device before it is locked
+/// Wrong PINs on a device within `PIN_FAILURE_WINDOW_SECS` before it is locked. A correct PIN
+/// does not reset them, so that a member cannot keep guessing colleagues' PINs between own logins.
 pub const PIN_MAX_FAILURES: i64 = 5;
+pub const PIN_FAILURE_WINDOW_SECS: i64 = 24 * 3600;
 /// A session on a shared device never lives longer than one shift
 pub const SESSION_MAX_SECS: i64 = 10 * 3600;
 pub const IDLE_TIMEOUT_MIN: i64 = 120;
@@ -549,6 +553,8 @@ pub struct SharedDevice {
     pub ip_registered: String,
     pub ip_lock: bool,
     pub failed_pins: i64,
+    /// Start of the window of `failed_pins`
+    pub failed_since: Option<i64>,
     pub locked_at: Option<i64>,
     pub created_by: String,
     pub created: i64,
@@ -618,6 +624,7 @@ impl SharedDevice {
             ip_registered: ip.clone(),
             ip_lock: false,
             failed_pins: 0,
+            failed_since: None,
             locked_at: None,
             created_by,
             created: now,
@@ -629,8 +636,8 @@ impl SharedDevice {
         let sql = r#"
 INSERT INTO shared_devices
     (id, practice_id, label, token_hash, public_key, ip_registered, ip_lock, failed_pins,
-    locked_at, created_by, created, last_seen, last_seen_ip, ip_warned)
-VALUES ($1, $2, $3, $4, $5, $6, $7, 0, NULL, $8, $9, $9, $10, NULL)"#;
+    failed_since, locked_at, created_by, created, last_seen, last_seen_ip, ip_warned)
+VALUES ($1, $2, $3, $4, $5, $6, $7, 0, NULL, NULL, $8, $9, $9, $10, NULL)"#;
         if is_hiqlite() {
             DB::hql()
                 .execute(
@@ -711,11 +718,13 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, 0, NULL, $8, $9, $9, $10, NULL)"#;
     }
 
     pub fn build_cookie<'a>(token: &str) -> Cookie<'a> {
+        // `Lax`, so that a link from another site still shows the PIN login. The cookie alone
+        // proves nothing without the device key.
         ApiCookie::build_with_same_site(
             COOKIE_SHARED_DEVICE,
             token,
             COOKIE_MAX_AGE_SECS,
-            SameSite::Strict,
+            SameSite::Lax,
         )
     }
 
@@ -759,30 +768,64 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, 0, NULL, $8, $9, $9, $10, NULL)"#;
         self.locked_at.is_some()
     }
 
-    /// Counts a wrong PIN atomically and locks the device at `PIN_MAX_FAILURES`. Returns the
-    /// failures in a row, including this one.
-    pub async fn register_failed_pin(&self, ip: &str) -> Result<i64, ErrorResponse> {
+    /// Counts an attempt as a failure before the PIN is checked, atomically, so that parallel
+    /// requests can never test more PINs than allowed. `None` if the device is locked. Failures
+    /// older than `PIN_FAILURE_WINDOW_SECS` start over. A correct PIN gives its attempt back with
+    /// `release_attempt`.
+    pub async fn reserve_attempt(&self, ip: &str) -> Result<Option<i64>, ErrorResponse> {
         let now = Utc::now().timestamp();
-        let sql = "UPDATE shared_devices SET failed_pins = failed_pins + 1, \
-            locked_at = CASE WHEN failed_pins + 1 >= $1 THEN COALESCE(locked_at, $2) \
-            ELSE locked_at END \
-            WHERE id = $3 RETURNING failed_pins";
-        let failed: i64 = if is_hiqlite() {
+        let sql = "UPDATE shared_devices SET \
+            failed_pins = CASE WHEN failed_since IS NULL OR failed_since < $1 THEN 1 \
+                ELSE failed_pins + 1 END, \
+            failed_since = CASE WHEN failed_since IS NULL OR failed_since < $1 THEN $2 \
+                ELSE failed_since END \
+            WHERE id = $3 AND locked_at IS NULL RETURNING failed_pins";
+        let window_start = now - PIN_FAILURE_WINDOW_SECS;
+        let count: Option<i64> = if is_hiqlite() {
             let mut rows = DB::hql()
-                .execute_returning(sql, params!(PIN_MAX_FAILURES, now, self.id.clone()))
+                .execute_returning(sql, params!(window_start, now, self.id.clone()))
                 .await?;
             match rows.pop() {
-                Some(row) => row?.get("failed_pins"),
-                None => return Err(ErrorResponse::new(ErrorResponseType::NotFound, "device")),
+                Some(row) => Some(row?.get("failed_pins")),
+                None => None,
             }
         } else {
-            DB::pg_query_rows(sql, &[&PIN_MAX_FAILURES, &now, &self.id], 1)
+            DB::pg_query_rows(sql, &[&window_start, &now, &self.id], 1)
                 .await?
                 .pop()
                 .map(|row| row.get("failed_pins"))
-                .ok_or_else(|| ErrorResponse::new(ErrorResponseType::NotFound, "device"))?
         };
 
+        match count {
+            // a burst of parallel requests beyond the limit locks right away
+            Some(c) if c > PIN_MAX_FAILURES => {
+                self.lock(ip).await?;
+                Ok(None)
+            }
+            c => Ok(c),
+        }
+    }
+
+    /// After a correct PIN: gives the reserved attempt back and refreshes `last_seen`. Earlier
+    /// failures stay counted.
+    pub async fn release_attempt(&self, ip: &str) -> Result<(), ErrorResponse> {
+        let now = Utc::now().timestamp();
+        let sql = "UPDATE shared_devices SET \
+            failed_pins = CASE WHEN failed_pins > 0 THEN failed_pins - 1 ELSE 0 END, \
+            last_seen = $1, last_seen_ip = $2 WHERE id = $3";
+        if is_hiqlite() {
+            DB::hql()
+                .execute(sql, params!(now, ip.to_string(), self.id.clone()))
+                .await?;
+        } else {
+            DB::pg_execute(sql, &[&now, &ip, &self.id]).await?;
+        }
+        Ok(())
+    }
+
+    /// A wrong PIN after `reserve_attempt` returned `count`. Locks the device at
+    /// `PIN_MAX_FAILURES`.
+    pub async fn wrong_pin(&self, count: i64, ip: &str) -> Result<(), ErrorResponse> {
         SharedDeviceEvent::create(
             &self.practice_id,
             Some(&self.id),
@@ -791,48 +834,50 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, 0, NULL, $8, $9, $9, $10, NULL)"#;
             Some(ip),
         )
         .await?;
-
-        if failed == PIN_MAX_FAILURES {
-            warn!(
-                device_id = self.id,
-                "shared device locked after too many wrong PINs"
-            );
-            SharedDeviceEvent::create(
-                &self.practice_id,
-                Some(&self.id),
-                None,
-                SharedDeviceEventKind::Locked,
-                Some(ip),
-            )
-            .await?;
-            if let Ok(practice) = SharedDevicePractice::find(&self.practice_id).await {
-                for user in practice.notify_users().await {
-                    send_email_shared_device_locked(&user, &self.label, &practice.name).await;
-                }
-            }
+        if count >= PIN_MAX_FAILURES {
+            self.lock(ip).await?;
         }
-
-        Ok(failed)
+        Ok(())
     }
 
-    /// After a correct PIN. Also refreshes `last_seen`. `false` if the device has been locked in
-    /// the meantime.
-    pub async fn reset_failures(&self, ip: &str) -> Result<bool, ErrorResponse> {
+    /// Only the request that actually locks sends the event and the E-Mails.
+    async fn lock(&self, ip: &str) -> Result<(), ErrorResponse> {
         let now = Utc::now().timestamp();
-        let sql = "UPDATE shared_devices SET failed_pins = 0, last_seen = $1, last_seen_ip = $2 \
-            WHERE id = $3 AND locked_at IS NULL";
+        let sql = "UPDATE shared_devices SET locked_at = $1 WHERE id = $2 AND locked_at IS NULL";
         let rows = if is_hiqlite() {
             DB::hql()
-                .execute(sql, params!(now, ip.to_string(), self.id.clone()))
+                .execute(sql, params!(now, self.id.clone()))
                 .await?
         } else {
-            DB::pg_execute(sql, &[&now, &ip, &self.id]).await?
+            DB::pg_execute(sql, &[&now, &self.id]).await?
         };
-        Ok(rows == 1)
+        if rows != 1 {
+            return Ok(());
+        }
+
+        warn!(
+            device_id = self.id,
+            "shared device locked after too many wrong PINs"
+        );
+        SharedDeviceEvent::create(
+            &self.practice_id,
+            Some(&self.id),
+            None,
+            SharedDeviceEventKind::Locked,
+            Some(ip),
+        )
+        .await?;
+        if let Ok(practice) = SharedDevicePractice::find(&self.practice_id).await {
+            for user in practice.notify_users().await {
+                send_email_shared_device_locked(&user, &self.label, &practice.name).await;
+            }
+        }
+        Ok(())
     }
 
     async fn unlock(&self) -> Result<(), ErrorResponse> {
-        let sql = "UPDATE shared_devices SET failed_pins = 0, locked_at = NULL WHERE id = $1";
+        let sql = "UPDATE shared_devices SET failed_pins = 0, failed_since = NULL, locked_at = NULL \
+            WHERE id = $1";
         if is_hiqlite() {
             DB::hql().execute(sql, params!(self.id.clone())).await?;
         } else {
@@ -1015,6 +1060,15 @@ pub async fn on_shared_device_login(
     ip: Option<&str>,
 ) -> Result<(), ErrorResponse> {
     end_device_sessions(device_id, Some(session_id)).await?;
+    // A session that has been bound to another user before keeps no tokens of that user.
+    let sql = "DELETE FROM refresh_tokens WHERE session_id = $1 AND user_id != $2";
+    if is_hiqlite() {
+        DB::hql()
+            .execute(sql, params!(session_id.to_string(), user_id.to_string()))
+            .await?;
+    } else {
+        DB::pg_execute(sql, &[&session_id, &user_id]).await?;
+    }
 
     let device = match SharedDevice::find(device_id).await {
         Ok(d) => d,
@@ -1057,6 +1111,21 @@ pub async fn on_shared_device_login(
     }
 
     Ok(())
+}
+
+/// A session from a PIN login only serves the login flow itself. It must never open the account
+/// or admin pages, approve a device code, or change the account, because a PIN is no MFA.
+pub fn is_pin_session_path(path: &str) -> bool {
+    matches!(
+        path,
+        "/auth/v1/oidc/authorize"
+            | "/auth/v1/oidc/authorize/pin"
+            | "/auth/v1/dev/authorize"
+            | "/auth/v1/oidc/callback"
+            | "/auth/v1/oidc/logout"
+            | "/auth/v1/tos/accept"
+            | "/auth/v1/tos/deny"
+    )
 }
 
 /// The idle timeout of the practice of the device, if the device still exists
@@ -1162,10 +1231,11 @@ impl SharedDeviceChallenge {
         Ok(slf)
     }
 
-    /// Single use: the challenge is deleted, no matter if it is valid.
+    /// Single use: the challenge is removed atomically, no matter if it is valid.
     pub async fn take(id: &str, device_id: &str) -> Result<Self, ErrorResponse> {
-        let slf: Option<Self> = DB::hql().get(Cache::App, Self::cache_idx(id)).await?;
-        DB::hql().delete(Cache::App, Self::cache_idx(id)).await?;
+        let slf: Option<Self> = DB::hql()
+            .get_remove(Cache::App, Self::cache_idx(id))
+            .await?;
         match slf {
             Some(slf) if slf.exp >= Utc::now().timestamp() && slf.device_id == device_id => Ok(slf),
             _ => Err(ErrorResponse::new(

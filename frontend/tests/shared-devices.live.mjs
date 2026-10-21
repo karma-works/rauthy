@@ -345,13 +345,16 @@ test('shared devices: register a PC, PIN login, lock and unlock', async t => {
     await pc.getByRole('checkbox').check();
     await pc.getByRole('button', { name: 'Confirm with passkey and register' }).click();
     await pc.getByText('This PC is now registered as a practice PC.').waitFor();
+    // the session of the registering person has been ended
+    res = await api(pc, 'GET', `/users/${uidA}/shared_device_pins`);
+    assert.equal(res.status, 401, res.text);
     await shot(pc, 'register-done');
     assert.equal(
         await pc.getByRole('link', { name: 'Back to the application' }).getAttribute('href'),
         `${BASE}/auth/v1/account`,
     );
     // the registration is used up
-    res = await api(pc, 'GET', `/shared_devices/registrations/${regId}`);
+    res = await api(admin, 'GET', `/shared_devices/registrations/${regId}`);
     assert.equal(res.status, 404, res.text);
 
     res = await api(admin, 'GET', `/shared_devices/practices/${PRACTICE}`);
@@ -362,9 +365,14 @@ test('shared devices: register a PC, PIN login, lock and unlock', async t => {
     // no passkeys on a shared device
     res = await api(pc, 'POST', `/users/${uidA}/webauthn/register/start`, {
         passkey_name: 'Shared',
-        mfa_mod_token_id: await mfaTokenViaPasskey(pc, uidA),
+        mfa_mod_token_id: 'x'.repeat(32),
     });
     assert.equal(res.status, 403, res.text);
+
+    // A signs in on the PC with the passkey for the account page
+    await pc.goto(authorizeUrl(CLIENT_ID));
+    await pc.getByRole('button', { name: 'Sign in with passkey' }).click();
+    await pc.waitForURL(/\/oidc\/callback/);
 
     // A creates a PIN on the account page of the PC
     await pc.goto(`${BASE}/auth/v1/account`);
@@ -385,7 +393,7 @@ test('shared devices: register a PC, PIN login, lock and unlock', async t => {
         p => p !== pinA && p !== pinB,
     );
     await enterPin(pc, wrong);
-    await pc.getByRole('alert').filter({ hasText: '4 attempts left' }).waitFor();
+    await pc.getByRole('alert').filter({ hasText: '4 more wrong PINs' }).waitFor();
     await shot(pc, 'pin-wrong');
     await enterPin(pc, pinB);
     await pc.waitForURL(/\/oidc\/callback/);
@@ -396,6 +404,9 @@ test('shared devices: register a PC, PIN login, lock and unlock', async t => {
     assert.deepEqual(access.amr, ['pin']);
     assert.equal(access.aa_shared_device, deviceId);
     assert.equal(id.aa_shared_device, deviceId);
+    // a PIN session only serves the login, not the account
+    res = await api(pc, 'GET', `/users/${uidB}/shared_device_pins`);
+    assert.equal(res.status, 401, res.text);
     // the token chain ends after the idle timeout without a refresh
     const refresh = jwtPayload(tokens.refresh_token);
     assert.ok(refresh.exp - refresh.nbf <= 120, `${refresh.exp - refresh.nbf}`);
@@ -416,15 +427,15 @@ test('shared devices: register a PC, PIN login, lock and unlock', async t => {
 
     // --- 5 wrong PINs lock the PC, the practice gets a mail
     await pc.goto(authorizeUrl(CLIENT_ID));
-    for (let i = 0; i < 5; i++) {
+    // the wrong PIN before stays counted, a correct PIN does not reset it
+    for (const left of [3, 2, 1]) {
         await enterPin(pc, wrong);
-        if (i < 4) {
-            await pc
-                .getByRole('alert')
-                .filter({ hasText: `${4 - i} attempts left` })
-                .waitFor();
-        }
+        await pc
+            .getByRole('alert')
+            .filter({ hasText: `${left} more wrong PINs` })
+            .waitFor();
     }
+    await enterPin(pc, wrong);
     await pc.getByText('This PC is locked after too many wrong PINs').waitFor();
     await shot(pc, 'pin-locked');
     await waitForMail(emailA, 'Practice PC locked');

@@ -16,10 +16,14 @@ use rauthy_api_types::shared_devices::{
     SharedDeviceRegistrationRequest, SharedDeviceRegistrationResponse, SharedDeviceResponse,
     SharedDeviceUpdateRequest,
 };
+use rauthy_common::constants::COOKIE_SESSION;
 use rauthy_common::utils::{base64_url_no_pad_decode, real_ip_from_req};
+use rauthy_data::api_cookie::ApiCookie;
 use rauthy_data::entity::api_keys::{AccessGroup, AccessRights};
 use rauthy_data::entity::auth_providers::NewFederatedUserCreated;
 use rauthy_data::entity::mfa_mod_token::MfaModToken;
+use rauthy_data::entity::refresh_tokens::RefreshToken;
+use rauthy_data::entity::sessions::SessionState;
 use rauthy_data::entity::shared_devices::{
     IDLE_TIMEOUT_DEFAULT, PIN_MAX_FAILURES, SharedDevice, SharedDeviceChallenge, SharedDeviceEvent,
     SharedDeviceEventKind, SharedDeviceMember, SharedDevicePractice, SharedDeviceRegistration,
@@ -541,7 +545,7 @@ pub async fn post_registration(
     check_enabled()?;
     payload.validate()?;
     let reg = registration_for_session(&path.into_inner(), &principal).await?;
-    let mut session = principal.validate_session_auth()?.clone();
+    let session = principal.validate_session_auth()?.clone();
 
     let ip = real_ip_from_req(&req)?;
     let token = MfaModToken::find(&payload.mfa_mod_token_id).await?;
@@ -613,9 +617,10 @@ pub async fn post_registration(
     )
     .await?;
 
-    // From now on, this session belongs to the device like every following one.
-    session.shared_device_id = Some(device.id.clone());
-    session.upsert().await?;
+    // The session of the registering person must not stay open on a shared device.
+    let sid = session.id.clone();
+    session.invalidate().await?;
+    RefreshToken::delete_by_sid(sid).await?;
 
     info!(
         device_id = device.id,
@@ -624,6 +629,7 @@ pub async fn post_registration(
     );
     Ok(no_store(&mut HttpResponse::Ok())
         .cookie(SharedDevice::build_cookie(&device_token))
+        .cookie(ApiCookie::build(COOKIE_SESSION, "", 0))
         .json(SharedDeviceRegisterResponse {
             device_id: device.id,
             return_uri: reg.return_uri,
@@ -719,7 +725,11 @@ pub async fn post_authorize_pin(
     ) else {
         return Ok(pin_error(StatusCode::UNAUTHORIZED, "invalid_device", None));
     };
-    if session.shared_device_id.as_deref() != Some(device.id.as_str()) {
+    // Only the fresh login session of this very device, never an authenticated one that could
+    // still carry tokens of somebody else.
+    if session.shared_device_id.as_deref() != Some(device.id.as_str())
+        || session.state != SessionState::Init
+    {
         warn!(
             device_id = device.id,
             "PIN login with a session of another device"
@@ -751,29 +761,32 @@ pub async fn post_authorize_pin(
     }
 
     device.check_ip(&ip).await?;
-    if device.is_locked() {
+    let Some(attempt) = device.reserve_attempt(&ip).await? else {
         return Ok(pin_error(StatusCode::LOCKED, "locked", None));
-    }
+    };
 
-    let Some(user_id) = SharedDeviceMember::find_by_pin(&device.practice_id, &payload.pin).await?
-    else {
-        let failed = device.register_failed_pin(&ip).await?;
-        return if failed >= PIN_MAX_FAILURES {
+    // The PIN of a disabled or expired account counts like a wrong one.
+    let user = match SharedDeviceMember::find_by_pin(&device.practice_id, &payload.pin).await? {
+        Some(user_id) => User::find(user_id)
+            .await
+            .ok()
+            .filter(|u| u.check_enabled().is_ok() && u.check_expired().is_ok()),
+        None => None,
+    };
+    let Some(user) = user else {
+        device.wrong_pin(attempt, &ip).await?;
+        return if attempt >= PIN_MAX_FAILURES {
             Ok(pin_error(StatusCode::LOCKED, "locked", None))
         } else {
             Ok(pin_error(
                 StatusCode::UNAUTHORIZED,
                 "wrong_pin",
-                Some(PIN_MAX_FAILURES - failed),
+                Some(PIN_MAX_FAILURES - attempt),
             ))
         };
     };
-    // A concurrent request may have locked the device in the meantime.
-    if !device.reset_failures(&ip).await? {
-        return Ok(pin_error(StatusCode::LOCKED, "locked", None));
-    }
+    device.release_attempt(&ip).await?;
 
-    let user = User::find(user_id).await?;
     let auth_step = authorize::post_authorize_pin(&req, payload, session, user).await?;
     let mut resp = map_auth_step(auth_step, &req, NewFederatedUserCreated::No).await?;
     // renew the device cookie with each use

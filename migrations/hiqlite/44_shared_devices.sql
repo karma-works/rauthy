@@ -54,6 +54,7 @@ CREATE TABLE shared_devices
     ip_registered TEXT    NOT NULL,
     ip_lock       INTEGER NOT NULL,
     failed_pins   INTEGER NOT NULL,
+    failed_since  INTEGER,
     locked_at     INTEGER,
     created_by    TEXT    NOT NULL,
     created       INTEGER NOT NULL,

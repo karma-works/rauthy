@@ -83,11 +83,19 @@ Passkey. API dazu:
 - Refresh-Token einer Sitzung am PC gilt nur bis Leerlaufzeit nach seinem frühesten
   Nutzungszeitpunkt (Ablauf des Access-Tokens minus 60 s). Die App erneuert Tokens nur bei
   Aktivität; nach Leerlauf braucht sie den PIN.
-- 5 falsche PINs hintereinander sperren den PC. Eine Passkey-Anmeldung eines Mitglieds am PC
-  entsperrt ihn. Antworten von `POST /oidc/authorize/pin`: `401 {"error":"wrong_pin",
-  "remaining":n}`, `423 {"error":"locked"}`, `401 {"error":"invalid_device"}`, `403` bei
-  IP-Sperre.
+- 5 falsche PINs an einem PC innerhalb von 24 Stunden sperren ihn. Ein richtiger PIN setzt den
+  Zähler nicht zurück, sonst könnte ein Mitglied zwischen eigenen Anmeldungen die PINs der
+  Kollegen raten. Der PIN eines deaktivierten Kontos zählt als falsch. Eine Passkey-Anmeldung
+  eines Mitglieds am PC entsperrt ihn und setzt den Zähler zurück. Antworten von
+  `POST /oidc/authorize/pin`: `401 {"error":"wrong_pin", "remaining":n}`,
+  `423 {"error":"locked"}`, `401 {"error":"invalid_device"}`, `403` bei IP-Sperre.
 - Auf einem registrierten PC lehnt Rauthy das Anlegen von Passkeys ab (`403`).
+- Eine Sitzung aus einer PIN-Anmeldung dient nur der Anmeldung selbst (Authorize, Callback,
+  Logout). Konto, Admin-Oberfläche und Device-Code-Freigabe sehen sie nicht; dafür braucht es
+  den Passkey.
+- Nach der Registrierung ist die Person, die registriert hat, in diesem Browser abgemeldet.
+- `max_age` erzwingt den Passkey nur auf der Anmeldeseite. Das Backend muss deshalb `amr` prüfen
+  (siehe oben), nicht `max_age`.
 
 ## Gespeicherte Daten (Datenschutz)
 

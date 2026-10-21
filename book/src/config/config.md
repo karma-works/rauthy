@@ -2611,8 +2611,8 @@ swagger_ui_enable = false
 # Registered shared devices (e.g. practice PCs) with a 4-digit PIN
 # login. A device is registered by a user with a fresh passkey in its
 # own browser. It keeps a cookie and a non-extractable browser key,
-# and the PIN selects the person. 5 wrong PINs in a row lock the
-# device until a member signs in on it with a passkey. Practices,
+# and the PIN selects the person. 5 wrong PINs within 24 hours lock
+# the device until a member signs in on it with a passkey. Practices,
 # members and devices are managed through the admin API
 # (`/shared_devices/*`, API key group `SharedDevices`).
 #

@@ -54,6 +54,7 @@ CREATE TABLE shared_devices
     ip_registered VARCHAR NOT NULL,
     ip_lock       BOOLEAN NOT NULL,
     failed_pins   BIGINT  NOT NULL,
+    failed_since  BIGINT,
     locked_at     BIGINT,
     created_by    VARCHAR NOT NULL,
     created       BIGINT  NOT NULL,

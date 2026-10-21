@@ -116,6 +116,13 @@ pub async fn get_authorize(
     // A registered shared device never signs in silently, and each login there starts a new
     // session, see `rauthy_data::entity::shared_devices`.
     let shared_device = SharedDevice::from_req(&req).await?;
+    // Without the cookie, e.g. on a navigation from another site, the session still tells.
+    let shared_device_id = shared_device.as_ref().map(|d| d.id.clone()).or_else(|| {
+        principal
+            .session
+            .as_ref()
+            .and_then(|s| s.shared_device_id.clone())
+    });
 
     // check prompt and max_age to possibly force a new session
     let force_new_session = if params
@@ -149,7 +156,7 @@ pub async fn get_authorize(
 
     // check if the user needs to do a MFA login each time
     let mut action = FrontendAction::None;
-    if !force_new_session && shared_device.is_none() {
+    if !force_new_session && shared_device_id.is_none() {
         // we need to check this because a user could deactivate MFA in another browser or
         // be deleted while still having existing mfa cookies somewhere else
         if let Ok(mfa_cooke) = MfaCookie::parse_validate(&ApiCookie::from_req(&req, COOKIE_MFA))
@@ -161,13 +168,13 @@ pub async fn get_authorize(
     }
 
     // check for `prompt=none` and redirect if we don't have a valid session
-    if (shared_device.is_some() || !force_new_session)
+    if (shared_device_id.is_some() || !force_new_session)
         && params
             .prompt
             .as_ref()
             .map(|p| p.contains("none"))
             .unwrap_or(false)
-        && (shared_device.is_some() || principal.validate_session_auth().is_err())
+        && (shared_device_id.is_some() || principal.validate_session_auth().is_err())
     {
         // RFC 9207 - error responses carry `iss` as well
         let loc = authorization_redirect(
@@ -232,7 +239,7 @@ pub async fn get_authorize(
         .unwrap_or(false);
     if !force_new_session
         && !prompt_consent
-        && shared_device.is_none()
+        && shared_device_id.is_none()
         && principal.validate_session_auth().is_ok()
     {
         let csrf = principal.get_session_csrf_token()?;
@@ -245,7 +252,7 @@ pub async fn get_authorize(
     } else {
         // check if we can re-use a still valid session or need to create a new one
         let reuse = principal.validate_session_auth_or_init().is_ok()
-            && (shared_device.is_none()
+            && (shared_device_id.is_none()
                 || principal
                     .session
                     .as_ref()
@@ -269,8 +276,8 @@ pub async fn get_authorize(
             .with_device_from_req(&req)
         };
 
-        if let Some(device) = &shared_device {
-            session.shared_device_id = Some(device.id.clone());
+        if shared_device_id.is_some() {
+            session.shared_device_id = shared_device_id;
         }
         if let Err(err) = session.upsert().await {
             let status = err.status_code();
