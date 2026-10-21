@@ -25,6 +25,25 @@ pub async fn bootstrap() -> Result<(), ErrorResponse> {
     Ok(())
 }
 
+/// Fork extension (`bootstrap.api_key_sync`): re-apply the access rights and `exp` of the
+/// `BOOTSTRAP_API_KEY` on every start, so a running instance picks up new access groups.
+/// Without it, the value is only read while an empty database is initialized.
+///
+/// Only an existing key is updated; a missing one is created as during the first start. The
+/// secret is set again only when `BOOTSTRAP_API_KEY_SECRET` is given.
+pub async fn sync_legacy_config_api_key() -> Result<(), ErrorResponse> {
+    if !RauthyConfig::get().vars.bootstrap.api_key_sync {
+        return Ok(());
+    }
+    if RauthyConfig::get().vars.bootstrap.api_key.is_none() {
+        debug!("bootstrap.api_key_sync is set, but no BOOTSTRAP_API_KEY is given");
+        return Ok(());
+    }
+    bootstrap_legacy_config_api_key().await?;
+    info!("Access rights of the bootstrap API Key synchronized");
+    Ok(())
+}
+
 async fn bootstrap_legacy_config_api_key() -> Result<(), ErrorResponse> {
     let Some(api_key_raw) = RauthyConfig::get().vars.bootstrap.api_key.as_ref() else {
         return Ok(());

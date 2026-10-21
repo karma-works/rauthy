@@ -12,9 +12,12 @@ SHARED_DEVICES_CLIENT_IDS=aa-practice-web
 ```
 
 `SHARED_DEVICES_CLIENT_IDS` ist eine Liste, ein Client je Zeile. Nur diese Clients nehmen einen PIN
-an, und nur bei ihnen genügt ein PIN `force_mfa`. Der API-Key braucht die Gruppe
-`SharedDevices` (Read, Create, Update, Delete). Empfehlung: Access-Token von `aa-practice-web`
-höchstens 300 s, damit die Leerlaufgrenze von Rauthy greift (siehe unten).
+an, und nur bei ihnen genügt ein PIN `force_mfa`. Der API-Key braucht die Gruppe `SharedDevices`
+(Read, Create, Update, Delete). Rauthy liest `BOOTSTRAP_API_KEY` sonst nur beim ersten Start mit
+leerer Datenbank; mit `BOOTSTRAP_API_KEY_SYNC=true` übernimmt eine laufende Instanz neue Rechte des
+Keys bei jedem Start (Secret nur, wenn `BOOTSTRAP_API_KEY_SECRET` gesetzt ist). Empfehlung:
+Access-Token von `aa-practice-web` höchstens 300 s, damit die Leerlaufgrenze von Rauthy greift
+(siehe unten).
 
 ## Admin-API (Backend → Rauthy)
 
