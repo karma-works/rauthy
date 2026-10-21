@@ -256,6 +256,36 @@ export const I18nDe: I18n = {
         privacy: 'Datenschutz',
         help: 'Hilfe',
     },
+    recoveryCodes: {
+        title: 'Ihre Wiederherstellungscodes',
+        desc: 'Bewahren Sie die Codes getrennt von Ihren Geräten auf, zum Beispiel ausgedruckt an einem sicheren Ort. Jeder Code funktioniert genau einmal.',
+        copy: 'Kopieren',
+        copied: 'Kopiert',
+        download: 'Als Textdatei',
+        print: 'Drucken',
+        warning:
+            'Ein Code allein öffnet Ihr Konto nicht. Er erlaubt nur, nach einer Bestätigung per E-Mail einen neuen Passkey einzurichten. Speichern Sie die Datei nicht auf einem gemeinsam genutzten Computer.',
+        confirm: 'Ich habe die Codes sicher aufbewahrt',
+        done: 'Fertig',
+        fileTitle: 'Wiederherstellungscodes – jeder Code gilt genau einmal',
+    },
+    recover: {
+        title: 'Passkey verloren?',
+        desc: 'Geben Sie Ihre E-Mail-Adresse und einen Ihrer Wiederherstellungscodes ein. Danach bestätigen Sie mit einem Code aus einer E-Mail und richten einen neuen Passkey ein.',
+        code: 'Wiederherstellungscode',
+        codePlaceholder: 'ABCD-EFGH-JKLM',
+        continue: 'Weiter',
+        mailSent:
+            'Wenn E-Mail-Adresse und Code stimmen, haben wir Ihnen einen Bestätigungscode geschickt. Er gilt 10 Minuten.',
+        mailCode: 'Bestätigungscode aus der E-Mail',
+        confirm: 'Bestätigen',
+        invalidMailCode: 'Der Code ist ungültig oder abgelaufen.',
+        restart: 'Neu beginnen',
+        newPasskey: 'Richten Sie jetzt einen neuen Passkey ein.',
+        done: 'Ihr neuer Passkey ist eingerichtet. Alle bisherigen Anmeldungen wurden beendet. Melden Sie sich jetzt neu an, entfernen Sie den verlorenen Passkey in Ihrem Konto und erzeugen Sie neue Wiederherstellungscodes.',
+        toAccount: 'Zum Konto',
+        noCodes: 'Keine Codes zur Hand? Wenden Sie sich an Ihre Administration.',
+    },
     splitLogin: {
         title: 'Anmelden bei {client}',
         intro: 'Wählen Sie den Weg, der zu Ihrer Situation passt.',
@@ -276,6 +306,9 @@ export const I18nDe: I18n = {
         lost: 'Passkey verloren? Wenden Sie sich an Ihre Administration.',
         wrongAccount:
             'Anmeldung nicht möglich. Prüfen Sie die E-Mail-Adresse und verwenden Sie einen Passkey dieses Kontos.',
+        lostPrefix: 'Passkey verloren?',
+        lostLink: 'Mit Wiederherstellungscode fortfahren',
+        lostSuffix: 'oder an Ihre Administration wenden.',
     },
     passkeyDevice: {
         kind: 'Gerät',

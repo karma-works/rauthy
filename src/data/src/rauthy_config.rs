@@ -1280,6 +1280,7 @@ Your account has not been compromised and no data was leaked."#.into()),
                 passkey_accounts_no_password: false,
                 notify_passkey_added: false,
                 ask_shared_device: false,
+                recovery_codes: false,
             },
             atproto: VarsAtproto { enable: false },
         }
@@ -4004,6 +4005,14 @@ impl Vars {
         ) {
             self.webauthn.ask_shared_device = v;
         }
+        if let Some(v) = t_bool(
+            &mut table,
+            "webauthn",
+            "recovery_codes",
+            "WEBAUTHN_RECOVERY_CODES",
+        ) {
+            self.webauthn.recovery_codes = v;
+        }
 
         check_table_empty(table, "webauthn");
     }
@@ -4838,6 +4847,9 @@ pub struct VarsWebauthn {
     pub notify_passkey_added: bool,
     /// If `true`, the UI asks before each passkey registration whether the computer is shared.
     pub ask_shared_device: bool,
+    /// If `true`, passkey accounts can create one-time recovery codes, see
+    /// `entity::recovery_codes`.
+    pub recovery_codes: bool,
 }
 
 impl VarsWebauthn {

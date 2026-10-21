@@ -23,8 +23,8 @@ use rauthy_handlers::openapi::ApiDoc;
 use rauthy_handlers::swagger_ui::{OPENAPI_CONFIG, OPENAPI_JSON};
 use rauthy_handlers::{
     api_keys, atproto, auth_providers, backup, blacklist, clients, cors_preflight, dev_only, email,
-    events, fed_cm, generic, groups, html, kv, oidc, pam, roles, scopes, sessions, swagger_ui,
-    themes, tos, users,
+    events, fed_cm, generic, groups, html, kv, oidc, pam, recovery, roles, scopes, sessions,
+    swagger_ui, themes, tos, users,
 };
 use rauthy_middlewares::csrf_protection::CsrfProtectionMiddleware;
 use rauthy_middlewares::ip_blacklist::RauthyIpBlacklistMiddleware;
@@ -660,6 +660,7 @@ fn api_services() -> actix_web::Scope {
                 .service(users::get_users_register)
                 .service(users::post_users_register)
                 .service(html::get_user_password_reset_fixed)
+                .service(html::get_user_recover_html)
                 .service(users::get_user_values_config)
                 .service(users::get_cust_attr)
                 .service(users::post_cust_attr)
@@ -671,6 +672,11 @@ fn api_services() -> actix_web::Scope {
                 .service(users::get_user_attr_editable)
                 .service(users::put_user_attr)
                 .service(users::post_user_mfa_token)
+                .service(recovery::post_recovery_codes)
+                .service(recovery::get_recovery_codes)
+                .service(recovery::delete_recovery_codes)
+                .service(recovery::post_recover_start)
+                .service(recovery::post_recover_verify)
                 .service(users::get_user_sessions)
                 .service(users::delete_user_sessions)
                 .service(users::put_user_picture)

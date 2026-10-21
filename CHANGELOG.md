@@ -4,6 +4,33 @@
 
 ### Changes
 
+#### Recovery Codes
+
+With the new `webauthn.recovery_codes` (`WEBAUTHN_RECOVERY_CODES`), accounts with a passkey can
+create ten one-time recovery codes like `ABCD-EFGH-JKLM` (60 random bits each).
+
+- `POST /users/{id}/recovery_codes` creates new codes with a fresh `mfa_mod_token`, which is
+  consumed, and invalidates all old ones. Only for accounts with a passkey, at most 5 times a day.
+  The codes are returned exactly once. The account setup shows them once after the first passkey.
+- `GET /users/{id}/recovery_codes` returns `remaining` and `created`, for the user and admins.
+  `DELETE` (admins) removes them. An admin removing a passkey removes the codes and ends a
+  recovery in progress as well, as do new codes.
+- Redeeming is public: `/auth/v1/users/recover` takes the E-Mail and a code
+  (`POST /users/recover/start`), then a confirmation code from an E-Mail, entered in the same
+  browser (`POST /users/recover/verify`). Only then a new passkey can be registered through a
+  `passkey_recovery` link that is bound to this browser and never sent by E-Mail. Afterwards, all
+  sessions and refresh tokens of the user are ended. Existing passkeys stay.
+- The start always returns the same response and takes at least 1.5 s, whether the account
+  exists or the code is valid. Mails are sent in the background. 20 failed attempts within 24 h
+  from one IP (IPv6: one /64) block redeeming from there; the block lifts on its own. 5 failed
+  attempts for one account (keyed by a hash of the E-Mail) send one warning E-Mail, but never
+  block the account, so that nobody can keep someone else's recovery locked. The confirmation
+  code allows 3 attempts, counted atomically.
+- Codes are stored as `HMAC-SHA256` with a key derived from the active encryption key, together
+  with the key ID, so that a key rotation keeps them valid. New events: `RecoveryCodeUsed`, `RecoveryCodeFailed`,
+  `RecoveryCodesRegenerated`. New table `recovery_codes` (migrations `V37` / `42`).
+- With the split login layout, the login page links to the recovery page.
+
 #### Own Sessions
 
 Users can list and end their own sessions through the API, for apps that build their own account
