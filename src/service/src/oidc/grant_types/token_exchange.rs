@@ -241,6 +241,7 @@ fn subject_authentication(claims: &JwtAccessClaims<'_>) -> Option<TokenAuthentic
     let auth_time = claims.auth_time?;
     let amr = match claims.amr.as_deref()? {
         [amr] => JwtAmrValue::from_str(amr).ok()?,
+        ["pin", "swk"] | ["swk", "pin"] => JwtAmrValue::Pin,
         _ => return None,
     };
     Some(TokenAuthentication::given(AuthTime::given(auth_time), amr))

@@ -401,7 +401,9 @@ test('shared devices: register a PC, PIN login, lock and unlock', async t => {
     const access = jwtPayload(tokens.access_token);
     const id = jwtPayload(tokens.id_token);
     assert.equal(access.sub, uidB);
-    assert.deepEqual(access.amr, ['pin']);
+    assert.deepEqual(access.amr, ['pin', 'swk']);
+    assert.deepEqual(id.amr, ['pin', 'swk']);
+    assert.match(deviceId, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
     assert.equal(access.aa_shared_device, deviceId);
     assert.equal(id.aa_shared_device, deviceId);
     // a PIN session only serves the login, not the account
@@ -467,6 +469,12 @@ test('shared devices: register a PC, PIN login, lock and unlock', async t => {
     assert.equal(res.status, 204, res.text);
     await pc.goto(authorizeUrl(CLIENT_ID));
     await pc.getByText('Empfang 2 · Praxis Test').waitFor();
+
+    // --- a sign-in reset deletes the passkeys, and with the last one the PIN
+    res = await api(admin, 'DELETE', `/users/${uidB}/webauthn/delete/Key`, {});
+    assert.ok(res.status < 300, res.text);
+    res = await api(admin, 'GET', `/shared_devices/practices/${PRACTICE}`);
+    assert.equal(res.json.members.find(m => m.user_id === uidB).has_pin, false);
 
     // --- revoked: back to the normal login
     res = await api(admin, 'DELETE', `/shared_devices/devices/${deviceId}`);

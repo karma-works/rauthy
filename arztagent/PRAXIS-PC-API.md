@@ -74,10 +74,13 @@ Passkey. API dazu:
   außer die Anfrage hat `max_age` (Nachweis für kritische Aktionen): dann nur Passkey.
 - Sperrbildschirm der App: `/oidc/authorize?prompt=login`. Am PC meldet Rauthy nie still an;
   `prompt=none` ergibt `login_required`.
-- Token nach PIN: `amr: ["pin"]`, `auth_time` = Zeitpunkt der PIN-Eingabe. Nach Passkey am PC:
-  `amr: ["mfa"]`. Beide tragen `aa_shared_device` (ID des PCs) im Access- und ID-Token.
-- Backend-Regel: `pin` nur zusammen mit `aa_shared_device` für die Tagesarbeit; kritische
-  Aktionen weiter nur mit `mfa` und `auth_time` höchstens 15 Minuten alt.
+- Token nach PIN: `amr: ["pin", "swk"]`, `auth_time` = Zeitpunkt der PIN-Eingabe. Nach Passkey
+  am PC: `amr: ["mfa"]`. Beide tragen `aa_shared_device` (ID des PCs) im Access- und ID-Token.
+- `aa_shared_device` ist die UUID des PCs (zufällig, ohne Namen oder Ort).
+- Wird der letzte Passkey eines Kontos gelöscht (z. B. „Anmeldung zurücksetzen“), löscht Rauthy
+  auch dessen PINs und beendet seine PIN-Sitzungen.
+- Backend-Regel: `pin` und `swk` nur zusammen mit `aa_shared_device` für die Tagesarbeit;
+  kritische Aktionen weiter nur mit `mfa` und `auth_time` höchstens 15 Minuten alt.
 - Sitzung am PC höchstens 10 h. Jede Anmeldung am PC beendet die anderen Sitzungen dort samt
   Refresh-Tokens.
 - Refresh-Token einer Sitzung am PC gilt nur bis Leerlaufzeit nach seinem frühesten

@@ -126,7 +126,7 @@ impl TokenAuthentication {
         has_user: bool,
     ) -> (Option<Vec<&'static str>>, Option<i64>) {
         match authentication {
-            Some(auth) if has_user => (Some(vec![auth.amr.as_str()]), Some(auth.auth_time.get())),
+            Some(auth) if has_user => (Some(auth.amr.values()), Some(auth.auth_time.get())),
             _ => (None, None),
         }
     }
@@ -395,7 +395,7 @@ impl TokenSet {
                     .as_ref()
                     .map(|jkt| JktClaim { jkt: &jkt.0 }),
             },
-            amr: vec![authentication.amr.as_str()],
+            amr: authentication.amr.values(),
             auth_time: authentication.auth_time.get(),
             at_hash: at_hash.0.as_str(),
             sid: sid.as_ref().map(|sid| sid.0.as_str()),
