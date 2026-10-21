@@ -1,6 +1,7 @@
 use crate::api_cookie::ApiCookie;
 use crate::database::{Cache, DB};
 use crate::entity::continuation_token::ContinuationToken;
+use crate::entity::shared_devices;
 use crate::entity::users::User;
 use crate::rauthy_config::RauthyConfig;
 use actix_web::cookie::SameSite;
@@ -51,6 +52,10 @@ pub struct Session {
     /// compatibility, like `mfa_method`.
     #[serde(default)]
     pub device: Option<String>,
+    /// The registered shared device this session has been started on, see
+    /// `entity::shared_devices`. Appended last for cache compatibility, like `mfa_method`.
+    #[serde(default)]
+    pub shared_device_id: Option<String>,
 }
 
 /// The MFA method actually verified for this session.
@@ -62,6 +67,9 @@ pub enum MfaMethod {
     WebAuthn,
     Otp,
     Provider,
+    /// A PIN on a registered shared device, see `entity::shared_devices`. It is no MFA, but
+    /// satisfies `force_mfa` for the clients in `shared_devices.client_ids`.
+    Pin,
     /// The pre-tracking `is_mfa` flag. It was set before the 2nd factor ceremony had finished,
     /// and also after a factor enrollment, so it is not a reliable proof and is never accepted
     /// as MFA. Only kept to be able to parse rows written by an older version.
@@ -76,6 +84,7 @@ impl MfaMethod {
             Self::WebAuthn => "webauthn",
             Self::Otp => "otp",
             Self::Provider => "provider",
+            Self::Pin => "pin",
             Self::Legacy => "mfa",
         }
     }
@@ -85,9 +94,13 @@ impl MfaMethod {
         matches!(self, Self::WebAuthn | Self::Otp | Self::Provider)
     }
 
-    /// Maps anything that is no verified MFA ceremony, like `Legacy`, to `None`.
+    /// Maps anything that is no verified ceremony, like `Legacy`, to `None`.
     pub const fn verified_or_none(self) -> Self {
-        if self.is_mfa() { self } else { Self::None }
+        if self.is_mfa() || matches!(self, Self::Pin) {
+            self
+        } else {
+            Self::None
+        }
     }
 }
 
@@ -100,6 +113,7 @@ impl FromStr for MfaMethod {
             "webauthn" => Ok(Self::WebAuthn),
             "otp" => Ok(Self::Otp),
             "provider" => Ok(Self::Provider),
+            "pin" => Ok(Self::Pin),
             "mfa" => Ok(Self::Legacy),
             _ => Err(ErrorResponse::new(
                 ErrorResponseType::Internal,
@@ -115,7 +129,7 @@ impl Debug for Session {
             f,
             "Session {{ id: {}(...), csrf_token: {}(...), user_id: {:?}, roles: {:?}, groups: {:?}, \
         is_mfa: {}, mfa_method: {}, state: {}, exp: {}, last_seen: {}, remote_ip: {:?}, \
-        device: {:?} }}",
+        device: {:?}, shared_device_id: {:?} }}",
             &self.id[..5],
             &self.csrf_token[..5],
             self.user_id,
@@ -128,6 +142,7 @@ impl Debug for Session {
             self.last_seen,
             self.remote_ip,
             self.device,
+            self.shared_device_id,
         )
     }
 }
@@ -493,12 +508,12 @@ OFFSET $3"#;
         let sql = r#"
 INSERT INTO
 sessions (id, csrf_token, user_id, roles, groups, is_mfa, state, exp, last_seen, remote_ip,
-    mfa_method, device)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+    mfa_method, device, shared_device_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 ON CONFLICT(id) DO UPDATE
 SET user_id = $3, roles = $4, groups = $5, is_mfa = $6, state = $7, exp = $8, last_seen = $9,
-    remote_ip = $10, mfa_method = $11, device = $12
-WHERE sessions.exp > $13"#;
+    remote_ip = $10, mfa_method = $11, device = $12, shared_device_id = $13
+WHERE sessions.exp > $14"#;
 
         let rows_affected = if is_hiqlite() {
             DB::hql()
@@ -517,6 +532,7 @@ WHERE sessions.exp > $13"#;
                         &self.remote_ip,
                         self.mfa_method.as_str(),
                         &self.device,
+                        &self.shared_device_id,
                         now
                     ),
                 )
@@ -537,6 +553,7 @@ WHERE sessions.exp > $13"#;
                     &self.remote_ip,
                     &self.mfa_method.as_str(),
                     &self.device,
+                    &self.shared_device_id,
                     &now,
                 ],
             )
@@ -620,7 +637,40 @@ WHERE sessions.exp > $13"#;
     #[inline]
     pub async fn set_authenticated(&mut self, user: &User) -> Result<(), ErrorResponse> {
         self.bind_user(user)?;
-        self.upsert().await
+        self.upsert().await?;
+        self.after_shared_device_login().await
+    }
+
+    /// Marks a session on a registered shared device authenticated after a correct PIN. The
+    /// caller has verified the device, its key and the PIN of exactly this `user`.
+    pub async fn set_authenticated_with_pin(&mut self, user: &User) -> Result<(), ErrorResponse> {
+        if self.shared_device_id.is_none() {
+            return Err(ErrorResponse::new(
+                ErrorResponseType::Forbidden,
+                "A PIN login needs a session of a registered device",
+            ));
+        }
+        self.bind_user(user)?;
+        self.mfa_method = MfaMethod::Pin;
+        self.is_mfa = false;
+        self.upsert().await?;
+        self.after_shared_device_login().await
+    }
+
+    /// Each login on a shared device ends all other sessions there, see
+    /// `shared_devices::on_shared_device_login`.
+    async fn after_shared_device_login(&self) -> Result<(), ErrorResponse> {
+        if let (Some(device_id), Some(user_id)) = (&self.shared_device_id, &self.user_id) {
+            shared_devices::on_shared_device_login(
+                device_id,
+                &self.id,
+                user_id,
+                self.mfa_method,
+                self.remote_ip.as_deref(),
+            )
+            .await?;
+        }
+        Ok(())
     }
 
     /// Marks a session authenticated only after the selected MFA ceremony succeeds.
@@ -634,7 +684,8 @@ WHERE sessions.exp > $13"#;
         self.bind_user(user)?;
         self.mfa_method = method;
         self.is_mfa = method.is_mfa();
-        self.upsert().await
+        self.upsert().await?;
+        self.after_shared_device_login().await
     }
 
     /// Binds this session to `user` without persisting it.
@@ -662,6 +713,10 @@ WHERE sessions.exp > $13"#;
         if self.user_id.as_deref() != Some(user.id.as_str()) {
             self.is_mfa = false;
             self.mfa_method = MfaMethod::None;
+        }
+        // A session on a shared device never lives longer than one shift.
+        if self.shared_device_id.is_some() {
+            self.exp = self.exp.min(now + shared_devices::SESSION_MAX_SECS);
         }
         self.last_seen = now;
         self.state = SessionState::Auth;
@@ -692,6 +747,7 @@ impl Session {
             remote_ip: remote_ip.map(|ip| ip.to_string()),
             mfa_method: MfaMethod::None,
             device: None,
+            shared_device_id: None,
         }
     }
 
@@ -750,6 +806,7 @@ impl Session {
             remote_ip,
             mfa_method: MfaMethod::None,
             device: None,
+            shared_device_id: None,
         })
     }
 
@@ -851,6 +908,7 @@ impl Session {
                 #[cfg(debug_assertions)]
                 let exceptions = [
                     "/auth/v1/oidc/authorize",
+                    "/auth/v1/oidc/authorize/pin",
                     "/auth/v1/dev/authorize",
                     "/auth/v1/oidc/callback",
                     "/auth/v1/oidc/token",
@@ -868,6 +926,7 @@ impl Session {
                 let exceptions = [
                     "/auth/v1/atproto/client_metadata",
                     "/auth/v1/oidc/authorize",
+                    "/auth/v1/oidc/authorize/pin",
                     "/auth/v1/oidc/callback",
                     "/auth/v1/oidc/token",
                     "/auth/v1/providers/login",

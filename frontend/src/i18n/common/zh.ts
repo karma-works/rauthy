@@ -286,6 +286,53 @@ export const I18nZh: I18n = {
         kindHybrid: '手机',
         kindSecurityKey: '安全密钥',
     },
+    sharedDevice: {
+        pinTitle: 'Sign in with PIN',
+        pinLabel: 'PIN',
+        pinHint: 'Your 4-digit PIN for the PCs of this practice',
+        pinSubmit: 'Sign in',
+        pinFormat: 'The PIN has four digits.',
+        wrongPin: 'Wrong PIN. {n} more wrong PINs today lock the PC.',
+        locked: 'This PC is locked after too many wrong PINs. A person of the practice unlocks it by signing in here with their passkey.',
+        unlock: 'Unlock with passkey',
+        invalidDevice:
+            'This PC is no longer registered as a practice PC. Please sign in with your passkey.',
+        forbidden:
+            'Signing in with a PIN is not possible here, for example outside the practice network. Please sign in with your passkey.',
+        usePasskey: 'Sign in with passkey',
+        passkeyNeeded: 'This sign-in needs your passkey.',
+        registerTitle: 'Register practice PC',
+        registerDesc:
+            'This browser will be registered as the shared practice PC "{label}" of {practice}. Afterwards, people of the practice sign in here with their PIN.',
+        riskTitle: 'Residual risk',
+        riskText:
+            'On a practice PC, a 4-digit PIN is enough for the daily work. Only place practice PCs in rooms that unauthorized people cannot enter, and keep PINs secret. Critical actions still need a passkey.',
+        riskAck: 'I have read the notice and confirm it for the practice.',
+        riskRequired: 'Please confirm the notice.',
+        registerSubmit: 'Confirm with passkey and register',
+        registerDone: 'This PC is now registered as a practice PC. You have been signed out here.',
+        backToApp: 'Back to the application',
+        registerNotFound:
+            'The registration has expired or belongs to another account. Please start it again in the application.',
+        registerNoSession:
+            'Please sign in to the application in this browser first and start the registration there.',
+        registerUnsupported:
+            'This browser cannot store a device key. Please use a current browser.',
+        registerErr: 'The PC could not be registered.',
+        pinsTitle: 'PIN for practice PCs',
+        pinsDesc:
+            'With the PIN, you sign in on the registered PCs of your practice. A new PIN is shown only once.',
+        pinNone: 'No PIN yet',
+        pinCreated: 'PIN from {date}',
+        pinCreate: 'Create PIN',
+        pinNew: 'New PIN',
+        pinShow: 'Your new PIN for {practice}:',
+        pinShowHint:
+            'Memorize the PIN now, it will not be shown again. A previous PIN no longer works.',
+        pinDone: 'Done',
+        pinErr: 'The PIN could not be created.',
+        pinTooMany: 'Too many new PINs today. Please try again tomorrow.',
+    },
     logout: {
         logout: '退出登录',
         confirmMsg: '您确定要退出登录并结束会话吗？',

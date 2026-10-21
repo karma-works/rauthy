@@ -76,6 +76,9 @@ pub enum HtmlTemplate {
     /// `webauthn.recovery_codes`
     RecoveryCodes,
     RestrictedEmailDomain(String),
+    /// The registered shared device of this browser as escaped JSON, see
+    /// `SharedDeviceTemplate`
+    SharedDevice(String),
     StatusCode(StatusCode),
     UserValues,
 }
@@ -107,6 +110,7 @@ impl HtmlTemplate {
             Self::PasskeyRegType => "tpl_passkey_reg_type",
             Self::PasswordReset(_) => "tpl_password_reset",
             Self::RecoveryCodes => "tpl_recovery_codes",
+            Self::SharedDevice(_) => "tpl_shared_device",
             Self::RestrictedEmailDomain(_) => "tpl_restricted_email_domain",
             Self::StatusCode(_) => "tpl_status_code",
             Self::UserValues => "tpl_user_values_config",
@@ -142,6 +146,7 @@ impl HtmlTemplate {
             Self::RecoveryCodes => RauthyConfig::get().vars.webauthn.recovery_codes.to_string(),
             Self::StatusCode(i) => i.to_string(),
             Self::RestrictedEmailDomain(i) => i.to_string(),
+            Self::SharedDevice(i) => i.to_string(),
             Self::UserValues => {
                 serde_json::to_string(&RauthyConfig::get().vars.user_values).unwrap()
             }
@@ -1083,6 +1088,28 @@ impl UserRecoverHtml<'_> {
         }
         .render()
         .expect("rendering recover.html")
+    }
+}
+
+#[derive(Default, Template)]
+#[template(path = "html/shared_devices/register.html")]
+pub struct SharedDeviceRegisterHtml<'a> {
+    lang: &'a str,
+    client_id: &'a str,
+    theme_ts: i64,
+    templates: &'a [HtmlTemplate],
+}
+
+impl SharedDeviceRegisterHtml<'_> {
+    pub fn build(lang: &Language, theme_ts: i64) -> String {
+        SharedDeviceRegisterHtml {
+            lang: lang.as_str(),
+            client_id: "rauthy",
+            theme_ts,
+            templates: &[HtmlTemplate::LegalLinks],
+        }
+        .render()
+        .expect("rendering shared_devices/register.html")
     }
 }
 

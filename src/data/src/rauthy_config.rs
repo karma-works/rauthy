@@ -286,6 +286,7 @@ pub struct Vars {
     pub pow: VarsPow,
     pub scim: VarsScim,
     pub server: VarsServer,
+    pub shared_devices: VarsSharedDevices,
     pub sponsor: VarsSponsor,
     pub suspicious_requests: VarsSuspiciousRequests,
     pub templates: VarsTemplates,
@@ -1282,6 +1283,10 @@ Your account has not been compromised and no data was leaked."#.into()),
                 recovery_codes: false,
             },
             atproto: VarsAtproto { enable: false },
+            shared_devices: VarsSharedDevices {
+                enable: false,
+                client_ids: Vec::new(),
+            },
         }
     }
 }
@@ -1360,6 +1365,7 @@ impl Vars {
         slf.parse_pow(&mut table);
         slf.parse_scim(&mut table);
         slf.parse_server(&mut table);
+        slf.parse_shared_devices(&mut table);
         slf.parse_theme(&mut table);
         slf.parse_sponsor(&mut table);
         slf.parse_suspicious_requests(&mut table);
@@ -1424,6 +1430,29 @@ impl Vars {
         }
 
         check_table_empty(table, "atproto");
+    }
+
+    fn parse_shared_devices(&mut self, table: &mut toml::Table) {
+        let mut table = t_table(table, "shared_devices");
+
+        if let Some(v) = t_bool(
+            &mut table,
+            "shared_devices",
+            "enable",
+            "SHARED_DEVICES_ENABLE",
+        ) {
+            self.shared_devices.enable = v;
+        }
+        if let Some(v) = t_str_vec(
+            &mut table,
+            "shared_devices",
+            "client_ids",
+            "SHARED_DEVICES_CLIENT_IDS",
+        ) {
+            self.shared_devices.client_ids = v;
+        }
+
+        check_table_empty(table, "shared_devices");
     }
 
     fn parse_access(&mut self, table: &mut toml::Table) {
@@ -4889,6 +4918,14 @@ impl FromStr for PasskeyRegType {
             )),
         }
     }
+}
+
+/// Registered shared devices with a PIN login, see `entity::shared_devices`.
+#[derive(Debug)]
+pub struct VarsSharedDevices {
+    pub enable: bool,
+    /// Only these clients accept a PIN, and only for them a PIN satisfies `force_mfa`.
+    pub client_ids: Vec<String>,
 }
 
 #[derive(Debug)]

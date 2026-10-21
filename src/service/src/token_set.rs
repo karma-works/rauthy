@@ -9,7 +9,8 @@ use rauthy_data::entity::jwk::{JwkKeyPair, JwkKeyPairAlg};
 use rauthy_data::entity::refresh_tokens::RefreshToken;
 use rauthy_data::entity::refresh_tokens_devices::RefreshTokenDevice;
 use rauthy_data::entity::scopes::Scope;
-use rauthy_data::entity::sessions::MfaMethod;
+use rauthy_data::entity::sessions::{MfaMethod, Session};
+use rauthy_data::entity::shared_devices;
 use rauthy_data::entity::user_attr::UserAttrValueEntity;
 use rauthy_data::entity::users::User;
 use rauthy_data::entity::users_values::UserValues;
@@ -213,6 +214,11 @@ impl TokenSet {
         let user_id = user.map(|u| u.id.as_str());
         let now = Utc::now().timestamp();
         let exp = now + lifetime;
+        let shared_device = if user.is_some() {
+            shared_device_of(sid.as_ref()).await
+        } else {
+            None
+        };
 
         let issued_token =
             IssuedToken::create(user_id, did.as_deref(), sid.map(|sid| sid.0), exp).await?;
@@ -267,6 +273,7 @@ impl TokenSet {
             amr,
             auth_time,
             act,
+            aa_shared_device: shared_device.as_deref(),
             custom_flattened: None,
         };
 
@@ -370,6 +377,7 @@ impl TokenSet {
             .then(|| Cow::from(WebId::resolve_webid_uri(&user.id)));
 
         let now = Utc::now().timestamp();
+        let shared_device = shared_device_of(sid.as_ref()).await;
         let mut claims = JwtIdClaims {
             common: JwtCommonClaims {
                 iat: now,
@@ -391,6 +399,7 @@ impl TokenSet {
             auth_time: authentication.auth_time.get(),
             at_hash: at_hash.0.as_str(),
             sid: sid.as_ref().map(|sid| sid.0.as_str()),
+            aa_shared_device: shared_device.as_deref(),
             email: None,
             email_verified: None,
             preferred_username: None,
@@ -537,12 +546,23 @@ impl TokenSet {
             // allow 60 second early usage
             now.add(access_token_lifetime).sub(Duration::from_secs(60))
         };
-        let exp = if did.is_some() {
+        let mut exp = if did.is_some() {
             nbf.add(config.vars.device_grant.refresh_token_lifetime)
         } else {
             nbf.add(config.vars.lifetimes.refresh_token_lifetime)
         }
         .timestamp();
+        // On a shared device, a token chain ends after the idle timeout without a refresh, and
+        // never outlives its session.
+        if let Some(sid) = &sid
+            && let Ok(session) = Session::find(sid.0.clone()).await
+            && let Some(device_id) = &session.shared_device_id
+        {
+            let idle = shared_devices::idle_timeout_for_device(device_id)
+                .await
+                .unwrap_or(shared_devices::IDLE_TIMEOUT_MIN);
+            exp = exp.min(nbf.timestamp() + idle).min(session.exp);
+        }
 
         let token = {
             let jti = secure_random_alnum(8);
@@ -887,6 +907,16 @@ impl TokenSet {
     }
 }
 
+/// The registered shared device of the session behind a token, see
+/// `rauthy_data::entity::shared_devices`
+async fn shared_device_of(sid: Option<&SessionId>) -> Option<String> {
+    if !shared_devices::is_enabled() {
+        return None;
+    }
+    let session = Session::find(sid?.0.clone()).await.ok()?;
+    session.shared_device_id
+}
+
 /// The `amr` describes the authentication that has actually been verified for this login, which
 /// is carried through the session, device grant and refresh tokens. It must not be derived from
 /// the factors a user has merely configured.
@@ -894,6 +924,7 @@ fn amr_for(mfa_method: MfaMethod) -> JwtAmrValue {
     match mfa_method {
         MfaMethod::WebAuthn | MfaMethod::Provider => JwtAmrValue::Mfa,
         MfaMethod::Otp => JwtAmrValue::Otp,
+        MfaMethod::Pin => JwtAmrValue::Pin,
         MfaMethod::None | MfaMethod::Legacy => JwtAmrValue::Pwd,
     }
 }

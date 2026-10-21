@@ -119,6 +119,7 @@ pub async fn login_finish<'a>(
             require_webauthn,
             require_otp,
             is_forward_auth: slf.is_forward_auth,
+            pin_login: false,
         },
         None,
         Some(provider_mfa_login),

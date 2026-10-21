@@ -5,6 +5,7 @@ use crate::entity::clients_scim::ClientScim;
 use crate::entity::jwk::JwkKeyPairAlg;
 use crate::entity::scopes::Scope;
 use crate::entity::sessions::MfaMethod;
+use crate::entity::shared_devices;
 use crate::entity::users::User;
 use crate::http_client::fetch_bounded;
 use crate::rauthy_config::{RauthyConfig, VarsEphemeralClients};
@@ -1319,7 +1320,9 @@ impl Client {
     /// through the interactive login, like the device authorization grant.
     #[inline]
     pub fn validate_mfa_method(&self, method: MfaMethod) -> Result<(), ErrorResponse> {
-        if self.id != "rauthy" && self.force_mfa && !method.is_mfa() {
+        // A PIN on a registered shared device counts only for the clients that accept it.
+        let pin_ok = method == MfaMethod::Pin && shared_devices::is_pin_client(&self.id);
+        if self.id != "rauthy" && self.force_mfa && !method.is_mfa() && !pin_ok {
             trace!("MFA required for this client but the session has no verified MFA");
             Err(ErrorResponse::new(
                 ErrorResponseType::MfaRequired,

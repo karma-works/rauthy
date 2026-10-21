@@ -59,6 +59,7 @@ export const TPL_IS_REG_OPEN = 'tpl_is_reg_open';
 export const TPL_LEGAL_LINKS = 'tpl_legal_links';
 export const TPL_LOGIN_ACTION = 'tpl_login_action';
 export const TPL_LOGIN_LAYOUT = 'tpl_login_layout';
+export const TPL_SHARED_DEVICE = 'tpl_shared_device';
 export const TPL_RECOVERY_CODES = 'tpl_recovery_codes';
 export const TPL_OTP_LENGTH = 'tpl_otp_length';
 export const TPL_PASSKEY_ACCOUNTS_NO_PASSWORD = 'tpl_passkey_accounts_no_password';

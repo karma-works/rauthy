@@ -10,7 +10,8 @@ use rauthy_common::utils::real_ip_from_svc_req;
 use rauthy_data::api_cookie::ApiCookie;
 use rauthy_data::entity::api_keys::{ApiKey, ApiKeyEntity};
 use rauthy_data::entity::principal::Principal;
-use rauthy_data::entity::sessions::Session;
+use rauthy_data::entity::sessions::{MfaMethod, Session};
+use rauthy_data::entity::shared_devices::is_pin_session_path;
 use rauthy_data::rauthy_config::RauthyConfig;
 use rauthy_error::{ErrorResponse, ErrorResponseType};
 use std::future::{Ready, ready};
@@ -135,6 +136,10 @@ async fn get_session_from_cookie(req: &ServiceRequest) -> Result<Option<Session>
                 remote_ip,
                 req.path(),
             ) {
+                if session.mfa_method == MfaMethod::Pin && !is_pin_session_path(req.path()) {
+                    trace!("PIN session used outside of the login flow: {}", req.path());
+                    return Ok(None);
+                }
                 let now = Utc::now().timestamp();
                 // only update the last_seen, if it is older than 10 seconds
                 if session.last_seen < now - 10 {

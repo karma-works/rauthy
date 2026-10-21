@@ -2,13 +2,15 @@ use chrono::Utc;
 use hiqlite::macros::params;
 use rauthy_common::is_hiqlite;
 use rauthy_data::database::DB;
+use rauthy_data::entity::shared_devices::SharedDeviceEvent;
 use rauthy_data::rauthy_config::RauthyConfig;
 use std::ops::Sub;
 use std::time::Duration;
 use tokio::time;
 use tracing::{debug, error};
 
-/// Cleans up all Events that exceed the configured EVENT_CLEANUP_THRESHOLD
+/// Cleans up all Events that exceed the configured EVENT_CLEANUP_THRESHOLD, and shared device
+/// events after `EVENTS_RETENTION_DAYS`
 pub async fn events_cleanup() {
     let mut interval = tokio::time::interval(Duration::from_secs(3600));
 
@@ -44,6 +46,12 @@ pub async fn events_cleanup() {
                 Err(err) => error!(?err, "Events cleanup"),
             }
         };
+
+        // Shared device events are kept for security purposes only, see `shared_devices`.
+        match SharedDeviceEvent::cleanup().await {
+            Ok(rows) => debug!("Cleaned up {rows} expired shared device events"),
+            Err(err) => error!(?err, "Shared device events cleanup"),
+        }
 
         // For some reason, the interval could `.tick()` multiple times,
         // if it finished too quickly.

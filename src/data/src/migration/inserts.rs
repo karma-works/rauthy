@@ -1576,8 +1576,8 @@ pub async fn sessions(data_before: Vec<Session>) -> Result<(), ErrorResponse> {
     let sql_2 = r#"
 INSERT INTO
 sessions (id, csrf_token, user_id, roles, groups, is_mfa, state, exp, last_seen, mfa_method,
-    device)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"#;
+    device, shared_device_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)"#;
 
     if is_hiqlite() {
         DB::hql().execute(sql_1, params!()).await?;
@@ -1596,7 +1596,8 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"#;
                         b.exp,
                         b.last_seen,
                         b.mfa_method.as_str(),
-                        b.device
+                        b.device,
+                        b.shared_device_id
                     ),
                 )
                 .await?;
@@ -1618,6 +1619,7 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"#;
                     &b.last_seen,
                     &b.mfa_method.as_str(),
                     &b.device,
+                    &b.shared_device_id,
                 ],
             )
             .await?;

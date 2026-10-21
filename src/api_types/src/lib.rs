@@ -21,6 +21,7 @@ pub mod pam;
 pub mod roles;
 pub mod scopes;
 pub mod sessions;
+pub mod shared_devices;
 pub mod themes;
 pub mod tos;
 pub mod users;

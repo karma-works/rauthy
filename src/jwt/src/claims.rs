@@ -147,6 +147,10 @@ pub struct JwtAccessClaims<'a> {
     /// via the token exchange with an `actor_token`.
     #[serde(borrow, skip_serializing_if = "Option::is_none")]
     pub act: Option<ActClaim<'a>>,
+    /// The registered shared device the session has been started on, see
+    /// `rauthy_data::entity::shared_devices`. Only set for such sessions.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aa_shared_device: Option<&'a str>,
     /// Custom user attributes promoted to the token root, driven by the per-scope
     /// `claims_at_root` flag. Flattened, so each entry becomes a top-level claim
     /// instead of nesting under `custom`. Issuance MUST fail if any key here
@@ -175,6 +179,9 @@ pub struct JwtIdClaims<'a> {
     pub at_hash: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sid: Option<&'a str>,
+    /// See `JwtAccessClaims::aa_shared_device`
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aa_shared_device: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub email: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -239,6 +246,7 @@ pub const RESERVED_ROOT_CLAIMS: &[&str] = &[
     "nonce",
     "acr",
     "amr",
+    "aa_shared_device",
     "azp",
     "at_hash",
     "c_hash",
@@ -371,6 +379,8 @@ pub enum JwtAmrValue {
     Pwd,
     Mfa,
     Otp,
+    /// A PIN on a registered shared device, RFC 8176
+    Pin,
 }
 
 impl FromStr for JwtAmrValue {
@@ -381,6 +391,7 @@ impl FromStr for JwtAmrValue {
             "pwd" => Self::Pwd,
             "mfa" => Self::Mfa,
             "otp" => Self::Otp,
+            "pin" => Self::Pin,
             _ => {
                 return Err(ErrorResponse::new(
                     ErrorResponseType::BadRequest,
@@ -404,6 +415,7 @@ impl JwtAmrValue {
             Self::Pwd => "pwd",
             Self::Mfa => "mfa",
             Self::Otp => "otp",
+            Self::Pin => "pin",
         }
     }
 }
@@ -476,6 +488,7 @@ mod tests {
             amr: None,
             auth_time: None,
             act: None,
+            aa_shared_device: None,
             custom_flattened: Some(flattened),
         };
 
@@ -512,6 +525,7 @@ mod tests {
             amr: None,
             auth_time: None,
             act: None,
+            aa_shared_device: None,
             custom_flattened: Some(flattened),
         };
 
@@ -561,6 +575,7 @@ mod tests {
             auth_time: 1_700_000_000,
             at_hash: "hash",
             sid: None,
+            aa_shared_device: None,
             email: None,
             email_verified: None,
             preferred_username: None,
@@ -655,6 +670,7 @@ mod tests {
                     })),
                 })),
             }),
+            aa_shared_device: None,
             custom_flattened: None,
         };
         let bytes = serde_json::to_vec(&emitted).unwrap();
@@ -711,6 +727,7 @@ mod tests {
             amr: Some(vec!["mfa"]),
             auth_time: Some(1_700_000_000),
             act: None,
+            aa_shared_device: None,
             custom_flattened: None,
         };
 

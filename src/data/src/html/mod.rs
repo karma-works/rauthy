@@ -7,7 +7,7 @@ use crate::html::templates::{
     AdminConfigPolicyHtml, AdminEventsHtml, AdminGroupsHtml, AdminHtml, AdminKVHtml, AdminPAMHtml,
     AdminRolesHtml, AdminScopesHtml, AdminSessionsHtml, AdminUsersHtml, DeviceHtml, FedCMHtml,
     HtmlTemplate, IndexHtml, LogoutHtml, ProviderCallbackHtml, ProvidersHtml,
-    UserPasswordResetHtml, UserRecoverHtml, UserRegisterHtml,
+    SharedDeviceRegisterHtml, UserPasswordResetHtml, UserRecoverHtml, UserRegisterHtml,
 };
 use crate::language::Language;
 use crate::rauthy_config::RauthyConfig;
@@ -55,6 +55,7 @@ pub enum HtmlCached {
     Logout(String),
     PasswordReset,
     Recover,
+    SharedDeviceRegister,
     UserRegistration,
 }
 
@@ -90,6 +91,7 @@ impl HtmlCached {
             Self::Logout(_) => "logout",
             Self::PasswordReset => "password_reset",
             Self::Recover => "recover",
+            Self::SharedDeviceRegister => "shared_device_register",
             Self::UserRegistration => "user_reg",
         }
     }
@@ -197,6 +199,7 @@ impl HtmlCached {
                 UserPasswordResetHtml::build(&lang, theme_ts, logo_updated)
             }
             Self::Recover => UserRecoverHtml::build(&lang, theme_ts),
+            Self::SharedDeviceRegister => SharedDeviceRegisterHtml::build(&lang, theme_ts),
             Self::UserRegistration => {
                 let providers = AuthProviderTemplate::get_all_json_template().await?;
                 UserRegisterHtml::build(&lang, theme_ts, HtmlTemplate::AuthProviders(providers))

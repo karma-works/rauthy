@@ -2607,6 +2607,27 @@ swagger_ui_enable = false
 # overwritten by: SSP_THRESHOLD
 #ssp_threshold = 1000
 
+[shared_devices]
+# Registered shared devices (e.g. practice PCs) with a 4-digit PIN
+# login. A device is registered by a user with a fresh passkey in its
+# own browser. It keeps a cookie and a non-extractable browser key,
+# and the PIN selects the person. 5 wrong PINs within 24 hours lock
+# the device until a member signs in on it with a passkey. Practices,
+# members and devices are managed through the admin API
+# (`/shared_devices/*`, API key group `SharedDevices`).
+#
+# default: false
+# overwritten by: SHARED_DEVICES_ENABLE
+#enable = false
+
+# Only these clients accept a PIN, and only for them a PIN login
+# satisfies `force_mfa`. Tokens after a PIN login carry
+# `amr: ["pin"]` and the claim `aa_shared_device`.
+#
+# default: []
+# overwritten by: SHARED_DEVICES_CLIENT_IDS - one per line
+#client_ids = []
+
 [suspicious_requests]
 # The "catch all" route handler on `/` will compare the request
 # path against a hardcoded list of common scan targets from bots

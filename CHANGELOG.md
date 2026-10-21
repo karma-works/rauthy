@@ -4,6 +4,35 @@
 
 ### Changes
 
+#### Shared Devices with a PIN Login
+
+With the new `[shared_devices]` (`SHARED_DEVICES_ENABLE`, `SHARED_DEVICES_CLIENT_IDS`), browsers
+can be registered as shared devices, like the reception PCs of a practice. People sign in there
+with a 4-digit PIN, see `rauthy_data::entity::shared_devices` and
+`arztagent/PRAXIS-PC-API.md`.
+
+- Practices, their members and devices are managed through the new admin API
+  `/shared_devices/*` with the API key group `SharedDevices`.
+- A device is registered by a user of a registration created through the admin API, in the user's
+  own session and with a fresh passkey. The browser keeps a cookie (only its hash is stored) and a
+  non-extractable ECDSA P-256 key, which signs a challenge for each PIN login.
+- PINs are random, unique within a practice, shown once on the account page, and only stored as
+  an HMAC. 5 wrong PINs within 24 hours lock a device until a member signs in on it with a
+  passkey; a correct PIN does not reset the count. The practice gets an E-Mail, also when a device
+  is used from another network. An IP lock per device is optional.
+- A session from a PIN login only serves the login flow. It cannot open the account or admin
+  pages or approve a device code. Registering a device signs the registering person out there.
+- `POST /oidc/authorize/pin` continues the `authorization_code` flow. Tokens carry
+  `amr: ["pin"]`, and every token of a session on a shared device carries `aa_shared_device`. A
+  PIN satisfies `force_mfa` only for the clients in `shared_devices.client_ids`.
+- Sessions on a shared device live at most 10 hours, never sign in silently, and end all other
+  sessions on the device at each login, together with the tokens of a previous user. Their refresh tokens expire after the idle timeout of the
+  practice without a refresh. Passkeys cannot be added on a shared device.
+- Security events per practice are kept for 90 days.
+
+The new tables come with migrations for Postgres (`V39`) and Hiqlite (`44`). A database migration
+between Postgres and Hiqlite does not copy them.
+
 #### Recovery Codes
 
 With the new `webauthn.recovery_codes` (`WEBAUTHN_RECOVERY_CODES`), accounts with a passkey can

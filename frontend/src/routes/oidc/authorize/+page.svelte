@@ -16,6 +16,7 @@
         TPL_LOGIN_ACTION,
         TPL_LOGIN_LAYOUT,
         TPL_RECOVERY_CODES,
+        TPL_SHARED_DEVICE,
         TPL_PASSKEY_REG_TYPE,
         TPL_ATPROTO_ID,
     } from '$utils/constants.js';
@@ -59,6 +60,8 @@
     import IconKey from '$icons/IconKey.svelte';
     import SplitLogin, { type SplitCard } from '$lib/authorize/SplitLogin.svelte';
     import type { PasskeyHint } from '$mfa/webauthn/authentication';
+    import SharedDevicePinLogin from '$lib/authorize/SharedDevicePinLogin.svelte';
+    import type { PinLoginRequest, SharedDeviceTemplate } from '$api/types/shared_devices';
 
     const inputWidth = '18rem';
 
@@ -128,6 +131,20 @@
         }
         return err;
     });
+
+    // a registered shared device, see `rauthy_data::entity::shared_devices`
+    let sharedDevice: SharedDeviceTemplate = $state({
+        label: '',
+        practice: '',
+        locked: false,
+        pin: false,
+    });
+    let usePasskeyOnSharedDevice = $state(false);
+    let showPinLogin = $derived(
+        !!sharedDevice.label &&
+            (sharedDevice.pin || sharedDevice.locked) &&
+            !usePasskeyOnSharedDevice,
+    );
 
     let atprotoId = $state('');
     let atprotoHandle = $state('');
@@ -293,6 +310,30 @@
             payload,
         );
         await handleAuthRes(res);
+    }
+
+    function pinLoginParams(): Omit<PinLoginRequest, 'pin' | 'challenge_id' | 'signature'> {
+        const params: Omit<PinLoginRequest, 'pin' | 'challenge_id' | 'signature'> = {
+            client_id: clientId || '',
+            redirect_uri: redirectUri || '',
+            state: stateParam,
+            nonce,
+            scopes,
+        };
+        if (challenge && (challengeMethod === 'plain' || challengeMethod === 'S256')) {
+            params.code_challenge = challenge;
+            params.code_challenge_method = challengeMethod;
+        }
+        if (resource) {
+            params.resource = resource;
+        }
+        return params;
+    }
+
+    /** On a shared device, a passkey login of a member also unlocks it. */
+    function onSharedDevicePasskey() {
+        usePasskeyOnSharedDevice = true;
+        onPasskeyDiscover();
     }
 
     function onPasskeyDiscover() {
@@ -643,6 +684,7 @@
 <Template id={TPL_PASSKEY_REG_TYPE} bind:value={passkeyRegType} />
 <Template id={TPL_LOGIN_LAYOUT} bind:value={loginLayout} />
 <Template id={TPL_RECOVERY_CODES} bind:value={recoveryEnabled} />
+<Template id={TPL_SHARED_DEVICE} bind:value={sharedDevice} />
 
 {#snippet loginOverlays()}
     {#if mfaPurpose}
@@ -681,7 +723,25 @@
             <Loading global />
         </div>
     {/if}
-    {#if isSplit}
+    {#if showPinLogin}
+        <div class="splitPage">
+            <SharedDevicePinLogin
+                device={sharedDevice}
+                {clientId}
+                clientName={clientName || clientId || ''}
+                clientLogoUpdated={clientLogoUpdated > -1 ? clientLogoUpdated : undefined}
+                loginParams={pinLoginParams}
+                onAuthRes={handleAuthRes}
+                onPasskey={onSharedDevicePasskey}
+            />
+            <div class="splitFooter">
+                <LegalLinks />
+            </div>
+            {@render loginOverlays()}
+            <ThemeSwitch absolute />
+            <LangSelector absolute borderless />
+        </div>
+    {:else if isSplit}
         <div class="splitPage">
             <SplitLogin
                 {clientId}

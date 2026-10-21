@@ -52,6 +52,7 @@ pub mod roles;
 pub mod scim_types;
 pub mod scopes;
 pub mod sessions;
+pub mod shared_devices;
 pub mod sponsor_reminder;
 pub mod theme;
 pub mod tos;

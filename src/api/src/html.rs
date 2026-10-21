@@ -245,6 +245,17 @@ pub async fn get_user_recover_html(req: HttpRequest) -> Result<HttpResponse, Err
         .await
 }
 
+/// Registers this browser as a shared device, only with `shared_devices.enable`
+#[get("/shared_devices/register")]
+pub async fn get_shared_device_register_html(
+    req: HttpRequest,
+) -> Result<HttpResponse, ErrorResponse> {
+    rauthy_data::entity::shared_devices::check_enabled()?;
+    HtmlCached::SharedDeviceRegister
+        .handle(req, ThemeCssFull::find_theme_ts_rauthy().await?, true)
+        .await
+}
+
 #[get("/users/password_reset")]
 pub async fn get_user_password_reset_fixed(
     req: HttpRequest,
