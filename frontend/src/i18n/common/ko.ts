@@ -295,16 +295,6 @@ export const I18nKo: I18n = {
         kindInternal: '이 컴퓨터',
         kindHybrid: '스마트폰',
         kindSecurityKey: '보안 키',
-        sharedQuestion: '이 컴퓨터를 여러 사람이 같은 사용자 계정으로 사용하나요?',
-        sharedQuestionHint: '예: 모두가 같은 Windows 사용자로 로그인하는 접수 PC.',
-        sharedYes: '예, 여러 사람이 이 사용자 계정을 사용합니다',
-        sharedNo: '아니요, 사용자 계정 또는 기기는 저만 사용합니다',
-        sharedUnknown: '모르겠습니다',
-        sharedRequired: '질문에 답해 주세요.',
-        sharedWarning:
-            '이 컴퓨터의 패스키는 개인용이 아닙니다. 컴퓨터 PIN을 아는 사람은 누구나 사용할 수 있습니다. 본인 스마트폰(QR 코드)에 패스키를 설정하거나 보안 키를 사용하세요.',
-        useThisDevice: '그래도 이 컴퓨터 사용',
-        sharedLabel: '공유 PC에서 설정됨',
     },
     logout: {
         logout: '로그아웃',

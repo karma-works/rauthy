@@ -255,15 +255,6 @@ export interface I18n {
         kindInternal: string;
         kindHybrid: string;
         kindSecurityKey: string;
-        sharedQuestion: string;
-        sharedQuestionHint: string;
-        sharedYes: string;
-        sharedNo: string;
-        sharedUnknown: string;
-        sharedRequired: string;
-        sharedWarning: string;
-        useThisDevice: string;
-        sharedLabel: string;
     };
     logout: {
         logout: string;

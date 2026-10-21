@@ -40,7 +40,6 @@ export interface WebauthnRegStartRequest {
 
 /** WebAuthn L3 `hints`: which authenticator the browser should offer first */
 export type PasskeyHint = 'client-device' | 'hybrid' | 'security-key';
-export type SharedDeviceChoice = 'yes' | 'no' | 'unknown';
 
 export interface WebauthnRegFinishRequest {
     /// Validation: RE_USER_NAME / 32
@@ -49,7 +48,6 @@ export interface WebauthnRegFinishRequest {
     /// Validation: RE_ALNUM_64
     magic_link_id?: string;
     authenticator_attachment?: 'platform' | 'cross-platform';
-    shared_device?: SharedDeviceChoice;
 }
 
 // ######################################################################

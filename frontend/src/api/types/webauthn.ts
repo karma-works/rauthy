@@ -13,8 +13,6 @@ export interface PasskeyResponse {
     description?: string;
     /// How the passkey has been added, reported by the browser
     kind?: 'internal' | 'hybrid' | 'security_key';
-    /// The answer to the "shared computer" question during the registration
-    shared_device?: 'yes' | 'no' | 'unknown';
 }
 
 export interface WebauthnDeleteRequest {

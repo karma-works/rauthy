@@ -45,8 +45,8 @@ bei POST/DELETE. `{id}` ist die `user_id` aus der xsrf-Antwort.
 1. `GET /oidc/sessioninfo/xsrf` → `csrf_token`, `user_id`, `exp`, `timeout` (nur im Speicher).
 2. `GET /users/{id}/webauthn` → 200, Liste `PasskeyResponse`: `name`, `registered`, `last_used`,
    `user_verified?`, `resident_key?`, `aaguid?`, `description`, neu `kind?`
-   (`internal|hybrid|security_key`) und `shared_device?` (`yes|no|unknown`). `kind` stammt aus
-   Browser-Angaben (`passkey_kind`), ist nicht geprüft und nur zur Anzeige.
+   (`internal|hybrid|security_key`). `kind` stammt aus Browser-Angaben (`passkey_kind`), ist nicht
+   geprüft und nur zur Anzeige.
 
 ### mfa_mod_token holen (vor Hinzufügen und Entfernen)
 
@@ -72,8 +72,7 @@ Token: 32 Zeichen, gilt 120 s (fest, `MfaModToken::new`), gebunden an User und I
 3. `navigator.credentials.create(options)`.
 4. `POST /users/{id}/webauthn/register/finish` mit `passkey_name` (gleich wie in Schritt 2),
    `data` (inkl. `data.response.transports` aus `getTransports()`), neu optional
-   `authenticator_attachment` (`platform|cross-platform`) und `shared_device`
-   (`yes|no|unknown`) → **201** ohne Body. Die Sitzung wird dabei auf `is_mfa = true` gesetzt.
+   `authenticator_attachment` (`platform|cross-platform`) → **201** ohne Body. Die Sitzung wird dabei auf `is_mfa = true` gesetzt.
    Finish braucht keinen mfa_mod_token; die Start-Daten leben `webauthn.req_exp` (60 s).
 
 ### Passkey entfernen

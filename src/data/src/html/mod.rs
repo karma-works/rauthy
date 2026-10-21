@@ -158,7 +158,6 @@ impl HtmlCached {
                                 .passkey_accounts_no_password,
                         ),
                         HtmlTemplate::LegalLinks,
-                        HtmlTemplate::AskSharedDevice,
                         HtmlTemplate::ClientLogoUpdated(
                             Logo::find_updated("rauthy", &LogoType::Client).await?,
                         ),

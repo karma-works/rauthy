@@ -11,7 +11,8 @@ use std::error::Error;
 mod common;
 
 const EMAIL: &str = "own-sessions@ostest.io";
-const PWD: &str = "123SuperSafe123";
+// Also valid under the strict policy that `zzb_handler_password_policy` leaves behind
+const PWD: &str = "Own!Sess#2Ion$3Te%4St&5";
 
 /// A dedicated user, so that ending "all other sessions" never touches other tests.
 async fn create_user(client: &Client, backend: &str, admin: &HeaderMap) -> UserResponse {

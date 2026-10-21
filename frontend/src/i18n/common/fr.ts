@@ -309,18 +309,6 @@ export const I18nFr: I18n = {
         kindInternal: 'Cet ordinateur',
         kindHybrid: 'Smartphone',
         kindSecurityKey: 'Clé de sécurité',
-        sharedQuestion:
-            'Cet ordinateur est-il utilisé par plusieurs personnes avec le même compte utilisateur ?',
-        sharedQuestionHint:
-            "Par exemple un PC d'accueil où tout le monde se connecte avec le même utilisateur Windows.",
-        sharedYes: 'Oui, plusieurs personnes utilisent ce compte utilisateur',
-        sharedNo: "Non, le compte utilisateur ou l'appareil n'appartient qu'à moi",
-        sharedUnknown: 'Je ne sais pas',
-        sharedRequired: 'Veuillez répondre à la question.',
-        sharedWarning:
-            "Une passkey sur cet ordinateur n'est pas personnelle : toute personne connaissant le code PIN de l'ordinateur peut l'utiliser. Configurez plutôt la passkey sur votre propre smartphone (QR code) ou utilisez une clé de sécurité.",
-        useThisDevice: 'Utiliser cet ordinateur quand même',
-        sharedLabel: 'Configurée sur un PC partagé',
     },
     logout: {
         logout: 'Se déconnecter',
