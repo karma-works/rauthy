@@ -1348,7 +1348,7 @@ impl SharedDeviceEvent {
                 .query_map(sql, params!(practice_id.to_string(), limit))
                 .await?
         } else {
-            DB::pg_query(sql, &[&practice_id, &limit], limit as usize).await?
+            DB::pg_query(sql, &[&practice_id, &limit], 64).await?
         };
         Ok(res)
     }
