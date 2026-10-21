@@ -3147,18 +3147,6 @@ rp_origin = 'http://localhost:8080'
 # overwritten by: WEBAUTHN_NOTIFY_PASSKEY_ADDED
 #notify_passkey_added = false
 
-# If set to `true`, the account page and the account setup ask before
-# each passkey registration whether this computer is used by several
-# people with the same account (e.g. a reception PC). With "yes" or
-# "don't know", a warning explains that a passkey on such a computer is
-# not personal, and the browser is asked to offer a smartphone (QR code)
-# or a security key first. The answer is stored with the passkey and
-# shown next to it.
-#
-# default: false
-# overwritten by: WEBAUTHN_ASK_SHARED_DEVICE
-#ask_shared_device = false
-
 # If set to `true`, accounts with a passkey can create ten one-time
 # recovery codes. A code alone gives no access: redeeming it on the
 # public page `/auth/v1/users/recover` sends a confirmation code to the

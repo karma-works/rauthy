@@ -80,24 +80,20 @@ Clients without `force_mfa` keep the default layout.
 # overwritten by: LOGIN_LAYOUT
 login_layout = 'split'
 ```
-#### Passkey Kind and Shared Computers
+#### Passkey Kind
 
 - `register/start` accepts optional WebAuthn `hints` (`client-device`, `hybrid`, `security-key`)
   and passes them to the browser.
-- `register/finish` accepts the browser's `authenticator_attachment` and, if asked, the answer to
-  the "shared computer" question (`shared_device`: `yes`, `no`, `unknown`). Rauthy stores how the
-  passkey has been added as `kind` (`internal`, `hybrid`, `security_key`), derived from the
-  attachment and the transports. Both values are reported by the browser, are not verified, and
-  are only meant for display. `GET /users/{id}/webauthn` returns them, the account page shows them.
-- With the new `webauthn.ask_shared_device` (`WEBAUTHN_ASK_SHARED_DEVICE`), the account page and
-  the account setup ask before each registration whether the computer is used by several people
-  with the same account. For "yes" and "don't know", a warning explains that a passkey on such a
-  computer is not personal, and the browser is asked to offer a smartphone or a security key first.
+- `register/finish` accepts the browser's `authenticator_attachment`. Rauthy stores how the passkey
+  has been added as `kind` (`internal`, `hybrid`, `security_key`), derived from the attachment and
+  the transports. It is reported by the browser, is not verified, and is only meant for display.
+  `GET /users/{id}/webauthn` returns it, the account page shows it.
 - A user can no longer remove the last passkey of a passkey-only account via the API. The UI never
   offered this, admins still can.
 
-The new columns `passkeys.kind` and `passkeys.shared_device_choice` come with migrations for
-Postgres (`V35`) and Hiqlite (`40`).
+The new column `passkeys.kind` comes with migrations for Postgres (`V35`) and Hiqlite (`40`). The
+interim "shared computer" question (`webauthn.ask_shared_device`) has been removed again in favor
+of registered shared devices; its column is dropped by Postgres `V38` and Hiqlite `43`.
 
 #### Passkey Types
 

@@ -306,18 +306,6 @@ export const I18nNl: I18n = {
         kindInternal: 'Deze computer',
         kindHybrid: 'Smartphone',
         kindSecurityKey: 'Beveiligingssleutel',
-        sharedQuestion:
-            'Wordt deze computer door meerdere personen met hetzelfde gebruikersaccount gebruikt?',
-        sharedQuestionHint:
-            'Bijvoorbeeld een receptie-pc waarop iedereen met dezelfde Windows-gebruiker inlogt.',
-        sharedYes: 'Ja, meerdere personen gebruiken dit gebruikersaccount',
-        sharedNo: 'Nee, het gebruikersaccount of apparaat is alleen van mij',
-        sharedUnknown: 'Weet ik niet',
-        sharedRequired: 'Beantwoord de vraag.',
-        sharedWarning:
-            'Een passkey op deze computer is niet persoonlijk: iedereen die de pincode van de computer kent, kan hem gebruiken. Stel de passkey in op uw eigen smartphone (QR-code) of gebruik een beveiligingssleutel.',
-        useThisDevice: 'Deze computer toch gebruiken',
-        sharedLabel: 'Ingesteld op een gedeelde pc',
     },
     logout: {
         logout: 'Uitloggen',

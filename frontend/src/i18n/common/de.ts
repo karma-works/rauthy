@@ -315,18 +315,6 @@ export const I18nDe: I18n = {
         kindInternal: 'Dieser Computer',
         kindHybrid: 'Smartphone',
         kindSecurityKey: 'Sicherheitsschlüssel',
-        sharedQuestion:
-            'Wird dieser Computer von mehreren Personen mit demselben Benutzerkonto genutzt?',
-        sharedQuestionHint:
-            'Zum Beispiel ein Empfangs-PC, an dem sich alle mit demselben Windows-Benutzer anmelden.',
-        sharedYes: 'Ja, mehrere Personen nutzen dieses Benutzerkonto',
-        sharedNo: 'Nein, das Benutzerkonto oder Gerät gehört nur mir',
-        sharedUnknown: 'Weiß ich nicht',
-        sharedRequired: 'Bitte beantworten Sie die Frage.',
-        sharedWarning:
-            'Ein Passkey auf diesem Computer ist nicht persönlich: Wer die PIN des Computers kennt, kann ihn benutzen. Richten Sie den Passkey bitte auf Ihrem eigenen Smartphone ein (QR-Code) oder verwenden Sie einen Sicherheitsschlüssel.',
-        useThisDevice: 'Trotzdem diesen Computer verwenden',
-        sharedLabel: 'Auf gemeinsam genutztem PC eingerichtet',
     },
     logout: {
         logout: 'Logout',

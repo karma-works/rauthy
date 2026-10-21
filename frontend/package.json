@@ -14,7 +14,6 @@
         "test:password-reset": "npm run build && node --test tests/password-reset.node.mjs",
         "test:new-user-passkey": "npm run build && node --test tests/new-user-passkey.node.mjs",
         "test:split-login": "npm run build && node --test tests/split-login.node.mjs",
-        "test:shared-device": "npm run build && node --test tests/shared-device.node.mjs",
         "test:recovery-codes-setup": "npm run build && node --test tests/recovery-codes-setup.node.mjs",
         "lint": "prettier --check . && eslint .",
         "format": "./node_modules/prettier/bin/prettier.cjs --write .",

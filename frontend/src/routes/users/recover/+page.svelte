@@ -4,13 +4,11 @@
     import ThemeSwitch from '$lib5/ThemeSwitch.svelte';
     import LegalLinks from '$lib5/LegalLinks.svelte';
     import PasskeyTypeSelect from '$lib/PasskeyTypeSelect.svelte';
-    import SharedDeviceQuestion from '$lib/SharedDeviceQuestion.svelte';
     import { useI18n } from '$state/i18n.svelte';
     import { fetchPost } from '$api/fetch';
     import { fetchSolvePow } from '$utils/pow';
     import { webauthnReg } from '$mfa/webauthn/registration';
     import { PATTERN_USER_NAME } from '$utils/patterns';
-    import type { PasskeyHint, SharedDeviceChoice } from '$mfa/webauthn/types.ts';
 
     /**
      * "Lost your passkey?": E-Mail + recovery code, then a code from an E-Mail, then a new
@@ -33,10 +31,6 @@
     let csrfToken = '';
     let passkeyName = $state('');
     let residentKey = $state(false);
-    let askSharedDevice = $state(false);
-    let sharedDevice: undefined | SharedDeviceChoice = $state();
-    let sharedHints: undefined | PasskeyHint[] = $state();
-    let showSharedRequired = $state(false);
 
     function restart() {
         step = 'start';
@@ -99,10 +93,6 @@
             err = t.mfa.passkeyNameErr;
             return;
         }
-        if (askSharedDevice && !sharedDevice) {
-            showSharedRequired = true;
-            return;
-        }
         isLoading = true;
         let res = await webauthnReg(
             userId,
@@ -113,7 +103,6 @@
             csrfToken,
             undefined,
             residentKey,
-            { hints: sharedHints, sharedDevice: askSharedDevice ? sharedDevice : undefined },
         );
         isLoading = false;
         if (res.error) {
@@ -199,12 +188,6 @@
             {:else if step === 'register'}
                 <p class="desc">{t.recover.newPasskey}</p>
                 <form novalidate onsubmit={onRegister}>
-                    <SharedDeviceQuestion
-                        bind:enabled={askSharedDevice}
-                        bind:choice={sharedDevice}
-                        bind:hints={sharedHints}
-                        showRequired={showSharedRequired}
-                    />
                     <PasskeyTypeSelect bind:residentKey />
                     <label for="recover-passkey-name">{t.mfa.passkeyName}</label>
                     <input

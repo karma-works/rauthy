@@ -437,7 +437,6 @@ use utoipa::{OpenApi, openapi};
             UserSessionsDeleteRequest,
             PasskeyHint,
             PasskeyKind,
-            SharedDeviceChoice,
             AuthenticatorAttachment,
             ResidentKeyToken,
             PamGetentResponse,

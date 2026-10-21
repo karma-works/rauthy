@@ -279,7 +279,6 @@ pub async fn reg_finish(
                 is_rk,
                 aaguid.map(|a| a.to_vec()),
                 kind,
-                payload.shared_device,
             )
             .await?;
 

@@ -5,7 +5,7 @@ use crate::fido_mds::mds_entry::MdsEntrySimple;
 use crate::rauthy_config::RauthyConfig;
 use chrono::Utc;
 use hiqlite::{Params, params};
-use rauthy_api_types::users::{PasskeyKind, PasskeyResponse, SharedDeviceChoice};
+use rauthy_api_types::users::{PasskeyKind, PasskeyResponse};
 use rauthy_common::constants::IDX_WEBAUTHN;
 use rauthy_common::is_hiqlite;
 use rauthy_derive::FromPgRow;
@@ -29,8 +29,6 @@ pub struct PasskeyEntity {
     pub aaguid: Option<Vec<u8>>,
     /// `PasskeyKind` as string, reported by the browser during the registration
     pub kind: Option<String>,
-    /// `SharedDeviceChoice` as string
-    pub shared_device_choice: Option<String>,
 }
 
 impl Debug for PasskeyEntity {
@@ -40,7 +38,7 @@ impl Debug for PasskeyEntity {
             f,
             "PasskeyEntity {{ user_id: {}, name: {}, passkey_user_id: {}, passkey: <hidden>, \
         credential_id: <hidden>, registered: {}, last_used: {}, user_verified: {:?}, \
-        resident_key: {:?}, aaguid: {}, kind: {:?}, shared_device_choice: {:?} }}",
+        resident_key: {:?}, aaguid: {}, kind: {:?} }}",
             self.user_id,
             self.name,
             self.passkey_user_id,
@@ -50,7 +48,6 @@ impl Debug for PasskeyEntity {
             self.resident_key,
             aaguid,
             self.kind,
-            self.shared_device_choice,
         )
     }
 }
@@ -69,7 +66,6 @@ impl PasskeyEntity {
         resident_key: Option<bool>,
         aaguid: Option<Vec<u8>>,
         kind: Option<PasskeyKind>,
-        shared_device: Option<SharedDeviceChoice>,
     ) -> Result<(), ErrorResponse> {
         // json, because bincode does not support deserialize from any, which would be the case here
         let passkey = serde_json::to_string(&pk)?;
@@ -87,7 +83,6 @@ impl PasskeyEntity {
             resident_key,
             aaguid,
             kind: kind.map(|k| k.as_str().to_string()),
-            shared_device_choice: shared_device.map(|c| c.as_str().to_string()),
         };
 
         let user_email = user.as_ref().map(|u| u.email.clone());
@@ -96,9 +91,9 @@ impl PasskeyEntity {
         let sql = r#"
 INSERT INTO passkeys (
     user_id, name, passkey_user_id, passkey, credential_id, registered, last_used, user_verified,
-    resident_key, aaguid, kind, shared_device_choice
+    resident_key, aaguid, kind
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)"#;
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"#;
 
         if is_hiqlite() {
             let mut txn = Vec::with_capacity(2);
@@ -121,8 +116,7 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)"#;
                     entity.user_verified,
                     entity.resident_key,
                     entity.aaguid,
-                    entity.kind,
-                    entity.shared_device_choice
+                    entity.kind
                 ),
             ));
 
@@ -150,7 +144,6 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)"#;
                     &entity.resident_key,
                     &entity.aaguid,
                     &entity.kind,
-                    &entity.shared_device_choice,
                 ],
             )
             .await?;
@@ -426,10 +419,6 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)"#;
                 aaguid: pk.aaguid.as_deref().map(format_aaguid),
                 description: None,
                 kind: pk.kind.as_deref().and_then(PasskeyKind::parse),
-                shared_device: pk
-                    .shared_device_choice
-                    .as_deref()
-                    .and_then(SharedDeviceChoice::parse),
             };
 
             if let Some(aaguid) = &pk.aaguid {

@@ -1,7 +1,6 @@
 import { arrBufToBase64UrlSafe, base64UrlSafeToArrBuf } from './utils';
 import type {
     PasskeyHint,
-    SharedDeviceChoice,
     WebauthnRegFinishRequest,
     WebauthnRegStartRequest,
 } from '$mfa/webauthn/types.ts';
@@ -16,8 +15,6 @@ export interface WebauthnRegResult {
 export interface WebauthnRegOptions {
     /** asks the browser to offer these authenticators first */
     hints?: PasskeyHint[];
-    /** the answer to the "shared computer" question, if it was asked */
-    sharedDevice?: SharedDeviceChoice;
 }
 
 export async function webauthnReg(
@@ -128,7 +125,6 @@ export async function webauthnReg(
         magic_link_id: magicLinkId,
         // @ts-ignore the `authenticatorAttachment` exists in all current browsers
         authenticator_attachment: credential.authenticatorAttachment ?? undefined,
-        shared_device: regOptions?.sharedDevice,
     };
 
     let resFinish = await fetch(`/auth/v1/users/${userId}/webauthn/register/finish`, {

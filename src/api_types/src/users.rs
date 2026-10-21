@@ -400,35 +400,6 @@ impl PasskeyKind {
     }
 }
 
-/// The answer to "Is this computer used by several people with the same account?" before a
-/// passkey registration.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum SharedDeviceChoice {
-    Yes,
-    No,
-    Unknown,
-}
-
-impl SharedDeviceChoice {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Yes => "yes",
-            Self::No => "no",
-            Self::Unknown => "unknown",
-        }
-    }
-
-    pub fn parse(value: &str) -> Option<Self> {
-        match value {
-            "yes" => Some(Self::Yes),
-            "no" => Some(Self::No),
-            "unknown" => Some(Self::Unknown),
-            _ => None,
-        }
-    }
-}
-
 /// The browser's `PublicKeyCredential.authenticatorAttachment`
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, ToSchema)]
 #[serde(rename_all = "kebab-case")]
@@ -451,8 +422,6 @@ pub struct WebauthnRegFinishRequest {
     pub magic_link_id: Option<String>,
     /// `PublicKeyCredential.authenticatorAttachment` from the browser, used for `kind`
     pub authenticator_attachment: Option<AuthenticatorAttachment>,
-    /// The answer to the "shared computer" question, if it has been asked
-    pub shared_device: Option<SharedDeviceChoice>,
 }
 
 #[derive(Deserialize, Validate, ToSchema)]
@@ -631,9 +600,6 @@ pub struct PasskeyResponse {
     /// How the passkey has been added, if known. Reported by the browser, not verified.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub kind: Option<PasskeyKind>,
-    /// The answer to the "shared computer" question during the registration, if asked
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub shared_device: Option<SharedDeviceChoice>,
 }
 
 #[derive(Serialize, ToSchema)]
