@@ -1,0 +1,112 @@
+name: ArztAgent image
+
+# Builds the amd64 image of this fork and pushes it to ghcr.io/karma-works/rauthy:<tag>,
+# the image ArztAgent pins by digest (ops/rauthy/IMAGE there). Manual only. Same builder
+# container and UI build as "Code Style"; the steps follow `just build` without arm64.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Image tag, e.g. 0.37.1-aa6'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: arztagent-image
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  binary:
+    name: Build release binary
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    container:
+      image: ghcr.io/sebadob/rauthy-builder:20260519@sha256:6bea5d732ebfa4613c51a55c1c9c8b5c59dddfde9adbb6eca899d6599fd2b219
+    steps:
+      - name: Check tag
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          echo "$TAG" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+-aa[0-9]+$' \
+            || { echo "tag must look like 0.37.1-aa6" >&2; exit 1; }
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Select reviewed Node version
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '26.11.1'
+          package-manager-cache: false
+      - name: Build tools, WASM and UI
+        run: |
+          rm -f /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources
+          cp assets/build_tools/debian.sources /etc/apt/sources.list.d/debian.sources
+          apt-get update --error-on=any
+          apt-get upgrade -y --no-install-recommends
+          apt-get install -y --no-install-recommends build-essential clang python3 patch
+          python3 assets/build_tools/builder_openssl.py
+          python3 assets/build_tools/builder_cargo.py
+          python3 assets/build_tools/install.py just wasm-pack wasm-bindgen-cli
+          just build-wasm
+          cd frontend
+          npm ci
+          cd ..
+          just build-ui
+          # Only add files the fresh UI build does not produce; never overwrite them.
+          tar -xkzf assets/static_html/templates_html.tar.gz templates/ || true
+          tar -xkzf assets/static_html/static_v1.tar.gz static/ || true
+      - name: FIDO MDS dataset
+        run: just fido-mds-prep
+      - name: Release build
+        run: |
+          cargo build --locked --release
+          mkdir -p out
+          cp target/release/rauthy out/rauthy_amd64
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: rauthy_amd64
+          path: out/rauthy_amd64
+          retention-days: 3
+
+  image:
+    name: Build and push image
+    needs: binary
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: rauthy_amd64
+          path: out
+      - name: Build and push
+        env:
+          TAG: ${{ inputs.tag }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          chmod 0755 out/rauthy_amd64
+          mkdir -p out/empty
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
+          docker buildx create --use
+          docker buildx build \
+            --platform linux/amd64 \
+            --build-arg CREATED="$(date --rfc-3339=seconds)" \
+            --build-arg VERSION="$TAG" \
+            -t "ghcr.io/karma-works/rauthy:$TAG" \
+            --metadata-file metadata.json \
+            --push .
+          digest=$(python3 -c "import json;print(json.load(open('metadata.json'))['containerimage.digest'])")
+          echo "Image: ghcr.io/karma-works/rauthy@$digest" | tee -a "$GITHUB_STEP_SUMMARY"
