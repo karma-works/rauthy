@@ -36,7 +36,8 @@ Rauthy kennt keine Praxisrollen. Das ArztAgent-Backend pflegt per Admin-API (Rec
 5. Der Browser erzeugt einen nicht exportierbaren ECDSA-P-256-Schlüssel (WebCrypto, IndexedDB).
    Rauthy speichert den öffentlichen Schlüssel und setzt das Cookie `rauthy_shared_device` (Präfix
    nach `cookie_mode`, in PROD `__Host-`; 256 Bit zufällig, nur als Hash gespeichert, HttpOnly,
-   SameSite=Strict, 400 Tage, bei jeder Anmeldung erneuert).
+   SameSite=Lax, 400 Tage, bei jeder Anmeldung erneuert). Danach ist die registrierende Person in
+   diesem Browser abgemeldet.
 
 Auf einem registrierten PC lehnt Rauthy das Anlegen von Passkeys ab.
 
@@ -60,8 +61,10 @@ Auf einem registrierten PC lehnt Rauthy das Anlegen von Passkeys ab.
 2. Der PC holt eine Challenge (60 s, einmal) und signiert sie mit seinem Schlüssel.
 3. `POST /auth/v1/oidc/authorize/pin` mit PIN, Signatur und den Parametern der Anfrage. Rauthy
    prüft Cookie, Signatur, IP-Regel, Sperre und PIN und stellt den Code aus.
-4. Nach 5 falschen PINs hintereinander ist der PC gesperrt, die Empfänger bekommen eine Mail.
-   Eine Person der Praxis entsperrt ihn, indem sie sich am PC mit ihrem Passkey anmeldet. Keine
+4. Nach 5 falschen PINs innerhalb von 24 Stunden ist der PC gesperrt, die Empfänger bekommen eine
+   Mail. Ein richtiger PIN setzt den Zähler nicht zurück (Ergebnis des Security-Reviews: sonst
+   könnte ein Mitglied zwischen eigenen Anmeldungen unbemerkt die PINs der Kollegen raten). Eine
+   Person der Praxis entsperrt ihn, indem sie sich am PC mit ihrem Passkey anmeldet. Keine
    Entsperrung nach Zeitablauf.
 5. IP: Weicht sie von der Registrierung ab, warnt Rauthy die Empfänger (höchstens einmal am Tag je
    PC). Mit harter IP-Sperre lehnt Rauthy die Anmeldung ab, ohne den PIN zu prüfen.
@@ -79,6 +82,8 @@ Auf einem registrierten PC lehnt Rauthy das Anlegen von Passkeys ab.
   `aa_shared_device` (ID des PCs) im Access- und ID-Token. Ein PIN genügt `force_mfa` nur bei den
   freigegebenen Clients.
 - Kein MFA-Merk-Cookie am PC.
+- Eine PIN-Sitzung dient nur der Anmeldung. Konto, Admin-Oberfläche und Device-Code-Freigabe sehen
+  sie nicht; dafür braucht es den Passkey.
 
 ## Aufgaben in ArztAgent
 
