@@ -37,6 +37,7 @@ use rauthy_data::entity::pictures::{PICTURE_STORAGE_TYPE, PictureStorage, UserPi
 use rauthy_data::entity::pow::PowEntity;
 use rauthy_data::entity::refresh_tokens::RefreshToken;
 use rauthy_data::entity::sessions::Session;
+use rauthy_data::entity::shared_devices::SharedDevice;
 use rauthy_data::entity::theme::ThemeCssFull;
 use rauthy_data::entity::tos::ToS;
 use rauthy_data::entity::tos_user_accept::ToSUserAccept;
@@ -2183,6 +2184,7 @@ pub async fn post_webauthn_reg_start(
     Json(payload): Json<WebauthnRegStartRequest>,
 ) -> Result<HttpResponse, ErrorResponse> {
     payload.validate()?;
+    reject_on_shared_device(&req).await?;
 
     // If we have a magic link ID in the payload, we do not validate the active session / principal.
     // This is mandatory to make registering a passkey for a completely new account work.
@@ -2213,6 +2215,18 @@ pub async fn post_webauthn_reg_start(
     }
 }
 
+/// A passkey on a shared device would not be personal. People bring their own phone or
+/// security key there, see `rauthy_data::entity::shared_devices`.
+async fn reject_on_shared_device(req: &HttpRequest) -> Result<(), ErrorResponse> {
+    if SharedDevice::from_req(req).await?.is_some() {
+        return Err(ErrorResponse::new(
+            ErrorResponseType::Forbidden,
+            "No passkeys can be added on a shared device",
+        ));
+    }
+    Ok(())
+}
+
 /// Finishes the registration process for a new WebAuthn Device for this user
 ///
 /// **Permissions**
@@ -2237,6 +2251,7 @@ pub async fn post_webauthn_reg_finish(
     Json(payload): Json<WebauthnRegFinishRequest>,
 ) -> Result<HttpResponse, ErrorResponse> {
     payload.validate()?;
+    reject_on_shared_device(&req).await?;
 
     // If we have a magic link ID in the payload, we do not validate the active session / principal.
     // This is mandatory to make registering a passkey for a completely new account work.

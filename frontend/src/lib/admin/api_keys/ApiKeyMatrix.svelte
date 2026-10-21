@@ -34,6 +34,7 @@
         ['Users', false, false, false, false],
         ['AuthProviders', false, false, false, false],
         ['ApiKeys', false, false, false, false],
+        ['SharedDevices', false, false, false, false],
     ]);
 
     $effect(() => {
@@ -84,6 +85,9 @@
                         break;
                     case 'ApiKeys':
                         idx = 13;
+                        break;
+                    case 'SharedDevices':
+                        idx = 14;
                         break;
                 }
                 if (idx === undefined) {

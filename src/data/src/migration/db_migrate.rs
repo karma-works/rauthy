@@ -382,6 +382,9 @@ pub async fn migrate_from_sqlite(db_from: &str) -> Result<(), ErrorResponse> {
                     .and_then(|value| MfaMethod::from_str(&value).ok())
                     .unwrap_or_default(),
                 device: row.get::<_, Option<String>>("device").unwrap_or_default(),
+                shared_device_id: row
+                    .get::<_, Option<String>>("shared_device_id")
+                    .unwrap_or_default(),
             })
         })?
         .map(|r| r.unwrap())

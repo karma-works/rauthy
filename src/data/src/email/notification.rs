@@ -1,5 +1,6 @@
 use crate::email::i18n::passkey_notification::I18nPasskeyNotification;
 use crate::email::i18n::recovery_notification::I18nRecoveryNotification;
+use crate::email::i18n::shared_device_notification::I18nSharedDeviceNotification;
 use crate::email::mailer::{EMail, EmailType};
 use crate::email::mailer_callback::EMailCallback;
 use crate::entity::theme::ThemeCssFull;
@@ -120,6 +121,39 @@ pub async fn send_email_recovery_codes_regenerated(user: &User) {
 pub async fn send_email_recovery_failures(user: &User) {
     let notification = recovery_notification(I18nRecoveryNotification::failures(&user.language));
     send_email_passkey_notification(user, &notification).await;
+}
+
+/// Sent to the practice's recipients when a shared device has been locked after wrong PINs.
+pub async fn send_email_shared_device_locked(user: &User, device: &str, practice: &str) {
+    let i18n = I18nSharedDeviceNotification::locked(&user.language);
+    let notification = shared_device_notification(i18n, device, practice, "");
+    send_email_passkey_notification(user, &notification).await;
+}
+
+/// Sent to the practice's recipients when a shared device is used from another network.
+pub async fn send_email_shared_device_ip(user: &User, device: &str, practice: &str, ip: &str) {
+    let i18n = I18nSharedDeviceNotification::ip_changed(&user.language);
+    let notification = shared_device_notification(i18n, device, practice, ip);
+    send_email_passkey_notification(user, &notification).await;
+}
+
+fn shared_device_notification(
+    i18n: I18nSharedDeviceNotification,
+    device: &str,
+    practice: &str,
+    ip: &str,
+) -> Notification {
+    let fill = |s: &str| {
+        s.replace("{device}", device)
+            .replace("{practice}", practice)
+            .replace("{ip}", ip)
+    };
+    Notification {
+        level: NotificationLevel::Warning,
+        head: i18n.head.to_string(),
+        row_1: fill(i18n.row_1),
+        row_2: Some(fill(i18n.row_2)),
+    }
 }
 
 fn recovery_mail_code_notification(lang: &Language, mail_code: &str, minutes: i64) -> Notification {

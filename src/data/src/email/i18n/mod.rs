@@ -10,3 +10,4 @@ pub mod password_new;
 pub mod recovery_notification;
 pub mod reset;
 pub mod reset_info;
+pub mod shared_device_notification;

@@ -107,6 +107,13 @@ impl HtmlTemplate {
             )),
             "tpl_passkey_reg_type" => Ok((Self::PasskeyRegType, None)),
             "tpl_recovery_codes" => Ok((Self::RecoveryCodes, None)),
+            // depends on the device cookie, the dev UI has no shared device
+            "tpl_shared_device" => Ok((
+                Self::SharedDevice(
+                    r#"{"label":"","practice":"","locked":false,"pin":false}"#.to_string(),
+                ),
+                None,
+            )),
             "tpl_restricted_email_domain" => Ok((
                 Self::RestrictedEmailDomain(
                     RauthyConfig::get()

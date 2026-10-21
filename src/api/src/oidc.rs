@@ -39,6 +39,9 @@ use rauthy_data::entity::logos::{Logo, LogoType};
 use rauthy_data::entity::mfa_cookie::MfaCookie;
 use rauthy_data::entity::pow::PowEntity;
 use rauthy_data::entity::sessions::Session;
+use rauthy_data::entity::shared_devices::{
+    self, SharedDevice, SharedDevicePractice, is_pin_client,
+};
 use rauthy_data::entity::theme::ThemeCssFull;
 use rauthy_data::entity::users::User;
 use rauthy_data::entity::well_known::WellKnown;
@@ -110,6 +113,10 @@ pub async fn get_authorize(
     };
     let theme_ts = ThemeCssFull::find_theme_ts(client.id.clone()).await?;
 
+    // A registered shared device never signs in silently, and each login there starts a new
+    // session, see `rauthy_data::entity::shared_devices`.
+    let shared_device = SharedDevice::from_req(&req).await?;
+
     // check prompt and max_age to possibly force a new session
     let force_new_session = if params
         .prompt
@@ -142,7 +149,7 @@ pub async fn get_authorize(
 
     // check if the user needs to do a MFA login each time
     let mut action = FrontendAction::None;
-    if !force_new_session {
+    if !force_new_session && shared_device.is_none() {
         // we need to check this because a user could deactivate MFA in another browser or
         // be deleted while still having existing mfa cookies somewhere else
         if let Ok(mfa_cooke) = MfaCookie::parse_validate(&ApiCookie::from_req(&req, COOKIE_MFA))
@@ -154,13 +161,13 @@ pub async fn get_authorize(
     }
 
     // check for `prompt=none` and redirect if we don't have a valid session
-    if !force_new_session
+    if (shared_device.is_some() || !force_new_session)
         && params
             .prompt
             .as_ref()
             .map(|p| p.contains("none"))
             .unwrap_or(false)
-        && principal.validate_session_auth().is_err()
+        && (shared_device.is_some() || principal.validate_session_auth().is_err())
     {
         // RFC 9207 - error responses carry `iss` as well
         let loc = authorization_redirect(
@@ -201,6 +208,17 @@ pub async fn get_authorize(
     templates.push(HtmlTemplate::LegalLinks);
     templates.push(HtmlTemplate::LoginLayout(login_layout));
     templates.push(HtmlTemplate::RecoveryCodes);
+    if let Some(device) = &shared_device {
+        let practice = SharedDevicePractice::find(&device.practice_id).await?;
+        // `max_age` asks for a fresh passkey, like for critical actions.
+        let pin = is_pin_client(&client.id) && params.max_age.is_none();
+        templates.push(HtmlTemplate::SharedDevice(shared_devices::template_json(
+            &device.label,
+            &practice.name,
+            device.is_locked(),
+            pin,
+        )));
+    }
     if RauthyConfig::get().vars.atproto.enable {
         let provider_atproto = AuthProvider::find_by_iss(PROVIDER_ATPROTO.to_string()).await?;
         templates.push(HtmlTemplate::AtprotoId(provider_atproto.id));
@@ -212,7 +230,11 @@ pub async fn get_authorize(
         .as_ref()
         .map(|p| p.contains("consent"))
         .unwrap_or(false);
-    if !force_new_session && !prompt_consent && principal.validate_session_auth().is_ok() {
+    if !force_new_session
+        && !prompt_consent
+        && shared_device.is_none()
+        && principal.validate_session_auth().is_ok()
+    {
         let csrf = principal.get_session_csrf_token()?;
 
         templates.push(HtmlTemplate::CsrfToken(csrf.to_string()));
@@ -222,8 +244,14 @@ pub async fn get_authorize(
         build_authorize_resp(accept_encoding, body, None, origin_header, browser_id)
     } else {
         // check if we can re-use a still valid session or need to create a new one
-        let session = if principal.session.is_some() {
-            if principal.validate_session_auth_or_init().is_ok() {
+        let reuse = principal.validate_session_auth_or_init().is_ok()
+            && (shared_device.is_none()
+                || principal
+                    .session
+                    .as_ref()
+                    .is_some_and(|s| s.state == rauthy_data::entity::sessions::SessionState::Init));
+        let mut session = if principal.session.is_some() {
+            if reuse {
                 #[allow(clippy::unnecessary_unwrap)]
                 principal.session.unwrap()
             } else {
@@ -241,6 +269,9 @@ pub async fn get_authorize(
             .with_device_from_req(&req)
         };
 
+        if let Some(device) = &shared_device {
+            session.shared_device_id = Some(device.id.clone());
+        }
         if let Err(err) = session.upsert().await {
             let status = err.status_code();
             let body = Error1Html::build(&lang, theme_ts, status, err.message);
@@ -446,6 +477,13 @@ pub async fn post_authorize_refresh(
     payload.validate()?;
 
     let session = principal.into_inner().session.unwrap();
+    // A shared device needs an interactive login each time.
+    if session.shared_device_id.is_some() {
+        return Err(ErrorResponse::new(
+            ErrorResponseType::Unauthorized,
+            "A shared device needs a new login",
+        ));
+    }
 
     let (client, header_origin) = validation::validate_auth_req_param(
         &req,

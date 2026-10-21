@@ -78,3 +78,7 @@ key_path = 'tls/key.pem'
 [webauthn]
 rp_id = 'localhost'
 rp_origin = 'http://localhost:8081'
+
+[shared_devices]
+enable = true
+client_ids = ['pin-test']

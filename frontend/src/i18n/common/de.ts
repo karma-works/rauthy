@@ -316,6 +316,53 @@ export const I18nDe: I18n = {
         kindHybrid: 'Smartphone',
         kindSecurityKey: 'Sicherheitsschlüssel',
     },
+    sharedDevice: {
+        pinTitle: 'Anmelden mit PIN',
+        pinLabel: 'PIN',
+        pinHint: 'Ihr vierstelliger PIN für die PCs dieser Praxis',
+        pinSubmit: 'Anmelden',
+        pinFormat: 'Der PIN hat vier Ziffern.',
+        wrongPin: 'PIN falsch. Noch {n} Versuche, dann wird der PC gesperrt.',
+        locked: 'Dieser PC ist nach zu vielen falschen PINs gesperrt. Eine Person der Praxis entsperrt ihn, indem sie sich hier mit ihrem Passkey anmeldet.',
+        unlock: 'Mit Passkey entsperren',
+        invalidDevice:
+            'Dieser PC ist nicht mehr als Praxis-PC registriert. Bitte melden Sie sich mit Ihrem Passkey an.',
+        forbidden:
+            'Eine Anmeldung mit PIN ist hier nicht möglich, zum Beispiel außerhalb des Praxisnetzes. Bitte melden Sie sich mit Ihrem Passkey an.',
+        usePasskey: 'Mit Passkey anmelden',
+        passkeyNeeded: 'Für diese Anmeldung ist Ihr Passkey nötig.',
+        registerTitle: 'Praxis-PC registrieren',
+        registerDesc:
+            'Dieser Browser wird als gemeinsamer Praxis-PC „{label}“ für {practice} registriert. Danach melden sich Personen der Praxis hier mit ihrem PIN an.',
+        riskTitle: 'Hinweis zum Restrisiko',
+        riskText:
+            'An einem Praxis-PC genügt ein vierstelliger PIN für die tägliche Arbeit. Stellen Sie Praxis-PCs nur in Räumen auf, die Unbefugte nicht betreten können, und halten Sie PINs geheim. Für kritische Aktionen bleibt der Passkey nötig.',
+        riskAck: 'Ich habe den Hinweis gelesen und bestätige ihn für die Praxis.',
+        riskRequired: 'Bitte bestätigen Sie den Hinweis.',
+        registerSubmit: 'Mit Passkey bestätigen und registrieren',
+        registerDone: 'Dieser PC ist jetzt als Praxis-PC registriert.',
+        backToApp: 'Zurück zur Anwendung',
+        registerNotFound:
+            'Die Registrierung ist abgelaufen oder gehört zu einem anderen Konto. Bitte starten Sie sie in der Anwendung neu.',
+        registerNoSession:
+            'Bitte melden Sie sich zuerst in diesem Browser in der Anwendung an und starten Sie die Registrierung dort.',
+        registerUnsupported:
+            'Dieser Browser kann keinen Geräteschlüssel speichern. Bitte verwenden Sie einen aktuellen Browser.',
+        registerErr: 'Der PC konnte nicht registriert werden.',
+        pinsTitle: 'PIN für Praxis-PCs',
+        pinsDesc:
+            'Mit dem PIN melden Sie sich an den registrierten PCs Ihrer Praxis an. Ein neuer PIN wird nur einmal angezeigt.',
+        pinNone: 'Noch kein PIN',
+        pinCreated: 'PIN vom {date}',
+        pinCreate: 'PIN erzeugen',
+        pinNew: 'Neuer PIN',
+        pinShow: 'Ihr neuer PIN für {practice}:',
+        pinShowHint:
+            'Merken Sie sich den PIN jetzt, er wird nicht wieder angezeigt. Ein bisheriger PIN gilt nicht mehr.',
+        pinDone: 'Fertig',
+        pinErr: 'Der PIN konnte nicht erzeugt werden.',
+        pinTooMany: 'Zu viele neue PINs heute. Bitte versuchen Sie es morgen wieder.',
+    },
     logout: {
         logout: 'Logout',
         confirmMsg: 'Sind Sie sicher, dass Sie sich ausloggen und die Session beenden möchten?',

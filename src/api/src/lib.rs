@@ -18,6 +18,7 @@ use rauthy_data::entity::fed_cm::FedCMLoginStatus;
 use rauthy_data::entity::mfa_cookie::MfaCookie;
 use rauthy_data::entity::principal::Principal;
 use rauthy_data::entity::sessions::Session;
+use rauthy_data::entity::shared_devices::SharedDevice;
 use rauthy_error::{ErrorResponse, ErrorResponseType};
 use rust_embed::Embed;
 use tracing::error;
@@ -44,6 +45,7 @@ pub mod recovery;
 pub mod roles;
 pub mod scopes;
 pub mod sessions;
+pub mod shared_devices;
 pub mod swagger_ui;
 pub mod themes;
 pub mod tos;
@@ -176,8 +178,10 @@ pub async fn map_auth_step(
                 builder.insert_header(origin);
             }
 
-            // if there is no mfa_cookie present, set a new one
-            if let Ok(mfa_cookie) = MfaCookie::parse_validate(&ApiCookie::from_req(req, COOKIE_MFA))
+            // if there is no mfa_cookie present, set a new one, but never on a shared device
+            if SharedDevice::token_from_req(req).is_some() {
+            } else if let Ok(mfa_cookie) =
+                MfaCookie::parse_validate(&ApiCookie::from_req(req, COOKIE_MFA))
             {
                 if mfa_cookie.email != res.email {
                     builder.cookie(MfaCookie::new_webauthn(res.email.clone()).build()?);
@@ -202,8 +206,10 @@ pub async fn map_auth_step(
                 builder.insert_header(origin);
             }
 
-            // if there is no mfa_cookie present, set a new one
-            if let Ok(mfa_cookie) = MfaCookie::parse_validate(&ApiCookie::from_req(req, COOKIE_MFA))
+            // if there is no mfa_cookie present, set a new one, but never on a shared device
+            if SharedDevice::token_from_req(req).is_some() {
+            } else if let Ok(mfa_cookie) =
+                MfaCookie::parse_validate(&ApiCookie::from_req(req, COOKIE_MFA))
             {
                 if mfa_cookie.email != res.email {
                     builder.cookie(MfaCookie::new_otp(res.email.clone()).build()?);

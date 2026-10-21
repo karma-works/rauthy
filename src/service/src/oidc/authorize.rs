@@ -4,6 +4,7 @@ use actix_web::http::header;
 use actix_web::http::header::{HeaderName, HeaderValue};
 use chrono::Utc;
 use rauthy_api_types::oidc::{LoginRefreshRequest, LoginRequest};
+use rauthy_api_types::shared_devices::PinLoginRequest;
 use rauthy_common::constants::COOKIE_MFA;
 use rauthy_common::sha256;
 use rauthy_common::utils::{get_rand, real_ip_from_req};
@@ -232,6 +233,7 @@ pub async fn post_authorize(
             require_webauthn,
             require_otp,
             is_forward_auth: req_data.fwda,
+            pin_login: false,
         },
         Some(user_needs_mfa),
         None,
@@ -295,6 +297,54 @@ pub async fn post_authorize_refresh(
             require_webauthn,
             require_otp,
             is_forward_auth: req_data.fwda,
+            pin_login: false,
+        },
+        None,
+        None,
+    )
+    .await
+}
+
+/// A login with a PIN on a registered shared device. The caller has verified the device, its
+/// signature, the IP rule and the PIN, which selects `user`.
+pub async fn post_authorize_pin(
+    req: &HttpRequest,
+    req_data: PinLoginRequest,
+    mut session: Session,
+    mut user: User,
+) -> Result<AuthStep, ErrorResponse> {
+    user.check_enabled()?;
+    user.check_expired()?;
+
+    let client = Client::find(req_data.client_id).await?;
+    let header_origin = client.get_validated_origin_header(req)?;
+
+    // `auth_time` of the tokens is the time of this login.
+    user.last_login = Some(Utc::now().timestamp());
+    user.last_failed_login = None;
+    user.failed_login_attempts = None;
+    user.save(None).await?;
+
+    session.is_mfa = false;
+    session.mfa_method = MfaMethod::None;
+
+    finish_authorize(
+        user,
+        client,
+        &mut session,
+        AuthorizeData {
+            redirect_uri: req_data.redirect_uri,
+            scopes: req_data.scopes,
+            state: req_data.state,
+            nonce: req_data.nonce,
+            code_challenge: req_data.code_challenge,
+            code_challenge_method: req_data.code_challenge_method,
+            resource: req_data.resource,
+            header_origin,
+            require_webauthn: false,
+            require_otp: false,
+            is_forward_auth: None,
+            pin_login: true,
         },
         None,
         None,
@@ -319,6 +369,8 @@ pub(crate) struct AuthorizeData {
     pub require_webauthn: bool,
     pub require_otp: bool,
     pub is_forward_auth: Option<bool>,
+    /// A correct PIN on a registered shared device, see `post_authorize_pin`
+    pub pin_login: bool,
 }
 
 /// Expects the user checks already been done, but does all the necessary client validations.
@@ -474,8 +526,11 @@ pub(crate) async fn finish_authorize(
 
         Ok(AuthStep::AwaitOtpCode(step))
     } else {
-        // password only account, or MFA verified by the upstream provider
-        if is_provider_mfa {
+        // password only account, a PIN on a shared device, or MFA verified by the upstream
+        // provider
+        if data.pin_login {
+            session.set_authenticated_with_pin(&user).await?;
+        } else if is_provider_mfa {
             session
                 .set_authenticated_with_mfa(&user, MfaMethod::Provider)
                 .await?;

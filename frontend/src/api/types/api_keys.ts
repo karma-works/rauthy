@@ -12,7 +12,8 @@ export type AccessGroup =
     | 'UserAttributes'
     | 'Users'
     | 'AuthProviders'
-    | 'ApiKeys';
+    | 'ApiKeys'
+    | 'SharedDevices';
 export type AccessRight = 'read' | 'create' | 'update' | 'delete';
 
 export interface ApiKeyAccess {

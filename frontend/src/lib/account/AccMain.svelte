@@ -4,6 +4,7 @@
     import AccInfo from '$lib5/account/AccInfo.svelte';
     import AccEdit from '$lib5/account/AccEdit.svelte';
     import AccMFA from './AccMFA.svelte';
+    import AccSharedDevicePins from './AccSharedDevicePins.svelte';
     import AccPassword from './AccPassword.svelte';
     import AccWebId from './AccWebId.svelte';
     import AccDevices from '$lib5/account/AccDevices.svelte';
@@ -245,6 +246,7 @@
                     <AccPassword {user} {authProvider} viewModePhone />
                 {:else if selected === t.account.navMfa}
                     <AccMFA bind:user />
+                    <AccSharedDevicePins {user} />
                 {:else if selected === 'WebID'}
                     {#if webIdData}
                         <AccWebId bind:webIdData />
@@ -286,6 +288,7 @@
                         <AccPassword {user} {authProvider} />
                     {:else if selected === t.account.navMfa}
                         <AccMFA bind:user />
+                        <AccSharedDevicePins {user} />
                     {:else if selected === 'WebID'}
                         {#if webIdData}
                             <AccWebId bind:webIdData />

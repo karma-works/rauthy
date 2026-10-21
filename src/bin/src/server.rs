@@ -24,7 +24,7 @@ use rauthy_handlers::swagger_ui::{OPENAPI_CONFIG, OPENAPI_JSON};
 use rauthy_handlers::{
     api_keys, atproto, auth_providers, backup, blacklist, clients, cors_preflight, dev_only, email,
     events, fed_cm, generic, groups, html, kv, oidc, pam, recovery, roles, scopes, sessions,
-    swagger_ui, themes, tos, users,
+    shared_devices, swagger_ui, themes, tos, users,
 };
 use rauthy_middlewares::csrf_protection::CsrfProtectionMiddleware;
 use rauthy_middlewares::ip_blacklist::RauthyIpBlacklistMiddleware;
@@ -661,6 +661,7 @@ fn api_services() -> actix_web::Scope {
                 .service(users::post_users_register)
                 .service(html::get_user_password_reset_fixed)
                 .service(html::get_user_recover_html)
+                .service(html::get_shared_device_register_html)
                 .service(users::get_user_values_config)
                 .service(users::get_cust_attr)
                 .service(users::post_cust_attr)
@@ -677,6 +678,21 @@ fn api_services() -> actix_web::Scope {
                 .service(recovery::delete_recovery_codes)
                 .service(recovery::post_recover_start)
                 .service(recovery::post_recover_verify)
+                .service(shared_devices::put_practice)
+                .service(shared_devices::get_practice)
+                .service(shared_devices::delete_practice)
+                .service(shared_devices::put_practice_member)
+                .service(shared_devices::delete_practice_member)
+                .service(shared_devices::get_practice_events)
+                .service(shared_devices::post_practice_registration)
+                .service(shared_devices::put_device)
+                .service(shared_devices::delete_device)
+                .service(shared_devices::get_registration)
+                .service(shared_devices::post_registration)
+                .service(shared_devices::post_challenge)
+                .service(shared_devices::post_authorize_pin)
+                .service(shared_devices::get_user_pins)
+                .service(shared_devices::post_user_pin)
                 .service(users::get_user_sessions)
                 .service(users::delete_user_sessions)
                 .service(users::put_user_picture)
