@@ -1,7 +1,9 @@
 use crate::database::{Cache, DB};
 use crate::email::email_change_confirm::send_email_confirm_change;
 use crate::email::email_change_info::send_email_change_info_new;
-use crate::email::password_reset::send_pwd_reset;
+use crate::email::mailer::EmailType;
+use crate::email::mailer_callback::{EMailCallback, EMailResult};
+use crate::email::password_reset::{queue_pwd_reset, send_pwd_reset};
 use crate::entity::continuation_token::ContinuationToken;
 use crate::entity::groups::Group;
 use crate::entity::magic_links::{MagicLink, MagicLinkUsage};
@@ -55,6 +57,9 @@ use std::str::FromStr;
 use std::time::Duration;
 use time::OffsetDateTime;
 use tracing::{debug, error, trace};
+
+/// Upper bound for `POST /users/{id}/setup_mail` to wait for the result of the E-Mail sender.
+pub const SETUP_MAIL_TIMEOUT: Duration = Duration::from_secs(30);
 
 static SQL_SAVE: &str = r#"
 UPDATE USERS SET
@@ -223,20 +228,26 @@ impl User {
         Ok(())
     }
 
+    /// Inserts the new user. With `send_setup_mail`, a `new_user` magic link is created and the
+    /// account setup E-Mail is queued (fire-and-forget). Without it, the user has no open setup
+    /// link; it can be sent later with [`User::send_setup_mail`].
     pub async fn create(
         new_user: User,
         post_reset_redirect_uri: Option<String>,
         user_tz: Option<&str>,
+        send_setup_mail: bool,
     ) -> Result<Self, ErrorResponse> {
         let slf = Self::insert(new_user).await?;
 
-        let magic_link = MagicLink::create(
-            slf.id.clone(),
-            RauthyConfig::get().vars.lifetimes.magic_link_pwd_first,
-            MagicLinkUsage::NewUser(post_reset_redirect_uri),
-        )
-        .await?;
-        send_pwd_reset(&magic_link, &slf, user_tz).await;
+        if send_setup_mail {
+            let magic_link = MagicLink::create(
+                slf.id.clone(),
+                RauthyConfig::get().vars.lifetimes.magic_link_pwd_first,
+                MagicLinkUsage::NewUser(post_reset_redirect_uri),
+            )
+            .await?;
+            send_pwd_reset(&magic_link, &slf, user_tz).await;
+        }
 
         Ok(slf)
     }
@@ -266,8 +277,9 @@ impl User {
         // neither value is read by `from_new_user_req()`, so both can be moved out directly
         let tz = mem::take(&mut new_user_req.tz);
         let preferred_username = mem::take(&mut new_user_req.preferred_username);
+        let send_setup_mail = new_user_req.send_setup_mail.unwrap_or(true);
         let new_user = User::from_new_user_req(new_user_req).await?;
-        let user = User::create(new_user, None, tz.as_deref()).await?;
+        let user = User::create(new_user, None, tz.as_deref(), send_setup_mail).await?;
 
         // UTC is the implicit default and is not persisted into the user values.
         let store_tz = if tz.as_deref() != Some("UTC") && tz.as_deref() != Some("Etc/UTC") {
@@ -315,6 +327,7 @@ impl User {
                 .user_values
                 .as_ref()
                 .and_then(|uv| uv.tz.as_deref()),
+            true,
         )
         .await?;
 
@@ -2035,6 +2048,10 @@ impl User {
     ///
     /// Refused while the user still has a passkey: a setup link can register a passkey without
     /// any proof of an existing one, so it is only meant for accounts that have been reset.
+    ///
+    /// Synchronous: waits up to [`SETUP_MAIL_TIMEOUT`] for the result of the E-Mail sender.
+    /// Returns `ServiceUnavailable` if the E-Mail could not be sent or the wait timed out; a new
+    /// call is always possible and creates a fresh link.
     pub async fn send_setup_mail(&self) -> Result<(), ErrorResponse> {
         if self.has_webauthn_enabled() {
             return Err(ErrorResponse::new(
@@ -2053,9 +2070,51 @@ impl User {
 
         let values = UserValues::find(&self.id).await?;
         let tz = values.as_ref().and_then(|uv| uv.tz.as_deref());
-        send_pwd_reset(&magic_link, self, tz).await;
 
-        Ok(())
+        let (callback, rx) = EMailCallback::result();
+        let res = tokio::time::timeout(SETUP_MAIL_TIMEOUT, async {
+            queue_pwd_reset(&magic_link, self, tz, callback).await?;
+            rx.await.map_err(|_| {
+                ErrorResponse::new(
+                    ErrorResponseType::ServiceUnavailable,
+                    "The E-Mail sender stopped before reporting a result",
+                )
+            })
+        })
+        .await;
+
+        let err = match res {
+            Ok(Ok(EMailResult::Sent)) => return Ok(()),
+            // The sender has logged the failure and emitted the `EmailSendError` event already.
+            Ok(Ok(EMailResult::Failed(reason))) => {
+                return Err(ErrorResponse::new(
+                    ErrorResponseType::ServiceUnavailable,
+                    format!("The setup E-Mail could not be sent: {reason}"),
+                ));
+            }
+            Ok(Err(err)) => err,
+            Err(_elapsed) => ErrorResponse::new(
+                ErrorResponseType::ServiceUnavailable,
+                format!(
+                    "The setup E-Mail could not be sent within {} seconds",
+                    SETUP_MAIL_TIMEOUT.as_secs()
+                ),
+            ),
+        };
+
+        // The sender did not report this failure itself -> log it and emit the event here.
+        error!(
+            user_id = self.id,
+            error = %err.message,
+            "Could not send the setup E-Mail"
+        );
+        if let Err(err) = Event::email_send_err(EmailType::NewUser, &self.email)
+            .send()
+            .await
+        {
+            error!(?err, "Could not push EmailSendError event");
+        }
+        Err(err)
     }
 
     pub async fn request_password_reset(

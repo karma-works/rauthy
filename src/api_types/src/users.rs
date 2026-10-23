@@ -86,6 +86,11 @@ pub struct NewUserRequest {
     /// Validation: Valid Timezone in the format of `Europe/Berlin`
     #[validate(length(max = 48))]
     pub tz: Option<String>,
+    /// Send the account setup E-Mail (`new_user` magic link) right away. Default: `true`.
+    /// With `false`, the user is created without any setup link and without an E-Mail; send it
+    /// later with `POST /users/{id}/setup_mail`, which reports whether the E-Mail was delivered.
+    #[schema(default = true)]
+    pub send_setup_mail: Option<bool>,
 }
 
 #[derive(Deserialize, Validate, ToSchema)]

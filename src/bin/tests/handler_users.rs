@@ -51,6 +51,7 @@ async fn test_users() -> Result<(), Box<dyn Error>> {
         ]),
         user_expires: None,
         tz: None,
+        send_setup_mail: None,
     };
     let res = reqwest::Client::new()
         .post(&url)
@@ -367,6 +368,7 @@ async fn test_api_key_passkey_delete_authorization() -> Result<(), Box<dyn Error
         groups: None,
         user_expires: None,
         tz: None,
+        send_setup_mail: None,
     };
     let res = client
         .post(format!("{}/users", get_backend_url()))
@@ -455,6 +457,7 @@ async fn test_setup_mail() -> Result<(), Box<dyn Error>> {
             groups: None,
             user_expires: None,
             tz: None,
+            send_setup_mail: None,
         })
         .send()
         .await?;
@@ -523,6 +526,44 @@ async fn test_setup_mail() -> Result<(), Box<dyn Error>> {
         .send()
         .await?;
     assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    // `send_setup_mail: false` creates the user without a setup E-Mail, which can then be
+    // sent with delivery feedback (the test backend uses the debug sender -> 204)
+    let res = client
+        .post(format!("{}/users", get_backend_url()))
+        .headers(auth_headers.clone())
+        .json(&NewUserRequest {
+            given_name: Some("Setup".to_string()),
+            family_name: Some("Later".to_string()),
+            email: format!("{}@batcave.io", new_store_id()),
+            preferred_username: None,
+            language: Language::En,
+            roles: vec![],
+            groups: None,
+            user_expires: None,
+            tz: None,
+            send_setup_mail: Some(false),
+        })
+        .send()
+        .await?;
+    assert_eq!(res.status(), 200);
+    let user_later = res.json::<UserResponse>().await?;
+    let res = client
+        .post(format!(
+            "{}/users/{}/setup_mail",
+            get_backend_url(),
+            user_later.id
+        ))
+        .headers(auth_headers.clone())
+        .send()
+        .await?;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let res = client
+        .delete(format!("{}/users/{}", get_backend_url(), user_later.id))
+        .headers(auth_headers.clone())
+        .send()
+        .await?;
+    assert_eq!(res.status(), 204);
 
     // unknown user
     let res = client

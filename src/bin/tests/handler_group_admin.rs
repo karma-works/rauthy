@@ -49,6 +49,7 @@ async fn create_user(
         groups: Some(groups),
         user_expires: None,
         tz: None,
+        send_setup_mail: None,
     };
     let res = client
         .post(format!("{backend}/users"))

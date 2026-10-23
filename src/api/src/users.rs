@@ -145,6 +145,10 @@ pub async fn get_users(
 
 /// Adds a new user to the database
 ///
+/// By default, the account setup E-Mail is queued right away (fire-and-forget). With
+/// `send_setup_mail: false`, the user is created without a setup link and without an E-Mail;
+/// use `POST /users/{id}/setup_mail` afterward to send it with delivery feedback.
+///
 /// **Permissions**
 /// - rauthy_admin
 #[utoipa::path(
@@ -2420,7 +2424,12 @@ pub async fn put_user_webid_data(
 /// `webauthn.new_user_passkey_only`, the link only allows the registration of a passkey.
 ///
 /// The user must not have any passkey left; delete them first to reset the sign-in of a user.
-/// The response does not tell whether the E-Mail could be delivered.
+///
+/// Synchronous: the request waits until the E-Mail sender reports the result, at most 30
+/// seconds. `204` means the SMTP server (or mail API) accepted the E-Mail, or the test / debug
+/// sender handled it, if no SMTP server is configured. `503` means the E-Mail could not be sent
+/// (SMTP unreachable, rejected, or the wait timed out); nothing is retried by Rauthy, the caller
+/// may simply call this endpoint again later.
 ///
 /// **Permissions**
 /// - `rauthy_admin` session or ApiKey with `Users: update`
@@ -2429,11 +2438,12 @@ pub async fn put_user_webid_data(
     path = "/users/{id}/setup_mail",
     tag = "users",
     responses(
-        (status = 204, description = "NoContent"),
+        (status = 204, description = "NoContent - the E-Mail was accepted by the SMTP server"),
         (status = 400, description = "BadRequest", body = ErrorResponse),
         (status = 401, description = "Unauthorized", body = ErrorResponse),
         (status = 403, description = "Forbidden", body = ErrorResponse),
         (status = 404, description = "NotFound", body = ErrorResponse),
+        (status = 503, description = "ServiceUnavailable - the E-Mail could not be sent", body = ErrorResponse),
     ),
 )]
 #[post("/users/{id}/setup_mail")]

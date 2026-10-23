@@ -90,6 +90,7 @@ async fn test_password_policy() -> Result<(), Box<dyn Error>> {
         groups: None,
         user_expires: None,
         tz: None,
+        send_setup_mail: None,
     };
     let mut res = reqwest::Client::new()
         .post(&url)
