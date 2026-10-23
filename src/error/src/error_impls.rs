@@ -69,6 +69,7 @@ impl ResponseError for ErrorResponse {
                 StatusCode::NOT_ACCEPTABLE
             }
             ErrorResponseType::NotFound => StatusCode::NOT_FOUND,
+            ErrorResponseType::ServiceUnavailable => StatusCode::SERVICE_UNAVAILABLE,
             ErrorResponseType::PreconditionRequired => StatusCode::PRECONDITION_REQUIRED,
             ErrorResponseType::Disabled
             | ErrorResponseType::CSRFTokenError

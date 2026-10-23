@@ -46,6 +46,9 @@ pub enum ErrorResponseType {
     PasswordRefresh,
     PreconditionRequired,
     Scim,
+    /// A required (external) service is currently unavailable, for instance the SMTP server.
+    /// Mapped to `503 Service Unavailable`.
+    ServiceUnavailable,
     SessionExpired,
     SessionTimeout,
     Timeout,
