@@ -1,13 +1,14 @@
-use crate::email::mailer::EMail;
+use crate::email::mailer::{
+    Attempt, EMail, EmailType, Outcome, SEND_ATTEMPTS, SEND_RETRY_BACKOFF, parse_from,
+    record_outcome, redact_address, try_deliver,
+};
 use crate::email::mailer_callback::EMailCallback;
 use crate::email::smtp_oauth_token::SmtpOauthToken;
 use crate::events::event::Event;
 use crate::rauthy_config::RauthyConfig;
-use lettre::message;
 use rauthy_common::HTTP_CLIENT;
 use rauthy_error::{ErrorResponse, ErrorResponseType};
 use serde::Serialize;
-use std::time::Duration;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
@@ -57,20 +58,16 @@ struct MicrosoftMessage<'a> {
 }
 
 pub async fn sender_microsoft_graph(mut rx: mpsc::Receiver<(EMail, EMailCallback)>) {
-    let from = {
-        let from: message::Mailbox = RauthyConfig::get()
-            .vars
-            .email
-            .smtp_from
-            .as_ref()
-            .parse()
-            .expect("SMTP_FROM could not be parsed correctly");
-
-        Recipient {
+    let from = match parse_from() {
+        Ok(from) => Ok(Recipient {
             email_address: EmailAddr {
                 address: from.email.to_string(),
                 name: from.name,
             },
+        }),
+        Err(err) => {
+            error!("{err} - E-Mails cannot be sent");
+            Err(err)
         }
     };
 
@@ -78,125 +75,124 @@ pub async fn sender_microsoft_graph(mut rx: mpsc::Receiver<(EMail, EMailCallback
 
     loop {
         debug!("Listening for incoming send E-Mail requests");
-        if let Some((req, callback)) = rx.recv().await {
-            debug!("New E-Mail for address: {:?}", req.address);
-
-            let body = if let Some(content) = req.html {
-                EmailBody {
-                    content,
-                    content_type: EmailContentType::Html,
-                }
-            } else if let Some(content) = req.text {
-                EmailBody {
-                    content,
-                    content_type: EmailContentType::Text,
-                }
-            } else {
-                warn!("Sending E-Mail with empty body!");
-                EmailBody {
-                    content: String::default(),
-                    content_type: EmailContentType::Text,
-                }
-            };
-
-            // capture before `req` is moved into the message
-            let email_typ = req.typ;
-            let recipient = req.address.clone();
-
-            let email = MicrosoftMessage {
-                message: MicrosoftEmail {
-                    bcc_recipients: Vec::default(),
-                    body,
-                    cc_recipients: Vec::default(),
-                    reply_to: vec![&from],
-                    subject: req.subject,
-                    to_recipients: vec![Recipient {
-                        email_address: EmailAddr {
-                            address: req.address,
-                            name: Some(req.recipient_name),
-                        },
-                    }],
-                },
-                save_to_sent_items: false,
-            };
-
-            match send_email(&email).await {
-                Ok(_) => {
-                    callback.call().await;
-                }
-                Err(err) => {
-                    error!("{err:?}");
-
-                    // short timeout if sending fails, maybe the network just had a short hiccup
-                    tokio::time::sleep(Duration::from_millis(500)).await;
-
-                    if let Err(err) = send_email(&email).await {
-                        error!(
-                            error = ?err,
-                            "Could not send E-Mail to '{}' even after retrying - dropping it",
-                            recipient
-                        );
-                        if let Err(err) = Event::email_send_err(email_typ, &recipient).send().await
-                        {
-                            error!(?err, "Could not push EmailSendError event");
-                        }
-                    }
-                }
-            }
-        } else {
+        let Some((req, callback)) = rx.recv().await else {
             warn!("Received 'None' in email 'sender' - exiting");
             break;
+        };
+
+        let typ = req.typ;
+        let address = req.address.clone();
+        debug!(email_type = %typ, "New E-Mail");
+
+        let from = match &from {
+            Ok(from) => from,
+            Err(err) => {
+                let outcome = Outcome::Failed(err.clone());
+                if record_outcome(typ, callback, outcome).await {
+                    send_err_event(typ, &address).await;
+                }
+                continue;
+            }
+        };
+
+        let body = if let Some(content) = req.html {
+            EmailBody {
+                content,
+                content_type: EmailContentType::Html,
+            }
+        } else if let Some(content) = req.text {
+            EmailBody {
+                content,
+                content_type: EmailContentType::Text,
+            }
+        } else {
+            warn!("Sending E-Mail with empty body!");
+            EmailBody {
+                content: String::default(),
+                content_type: EmailContentType::Text,
+            }
+        };
+
+        let email = MicrosoftMessage {
+            message: MicrosoftEmail {
+                bcc_recipients: Vec::default(),
+                body,
+                cc_recipients: Vec::default(),
+                reply_to: vec![from],
+                subject: req.subject,
+                to_recipients: vec![Recipient {
+                    email_address: EmailAddr {
+                        address: req.address,
+                        name: Some(req.recipient_name),
+                    },
+                }],
+            },
+            save_to_sent_items: false,
+        };
+
+        let mut attempt = GraphAttempt {
+            email: &email,
+            address: &address,
+        };
+        let outcome = try_deliver(&callback, SEND_ATTEMPTS, SEND_RETRY_BACKOFF, &mut attempt).await;
+        if record_outcome(typ, callback, outcome).await {
+            send_err_event(typ, &address).await;
         }
     }
 }
 
-async fn send_email(email: &MicrosoftMessage<'_>) -> Result<(), ErrorResponse> {
-    let token = SmtpOauthToken::get()
-        .await
-        .expect("Error retrieving SMTP OAuth Token");
+async fn send_err_event(typ: EmailType, address: &str) {
+    if let Err(err) = Event::email_send_err(typ, address).send().await {
+        error!(?err, "Could not push EmailSendError event");
+    }
+}
 
-    warn!(
-        "SendMail URI: {}",
-        RauthyConfig::get()
-            .vars
-            .email
-            .microsoft_graph_uri
-            .as_ref()
-            .unwrap()
-    );
+struct GraphAttempt<'a> {
+    email: &'a MicrosoftMessage<'a>,
+    address: &'a str,
+}
+
+impl Attempt for GraphAttempt<'_> {
+    async fn attempt(&mut self) -> Result<(), String> {
+        send_email(self.email)
+            .await
+            .map_err(|err| redact_address(&err.message, self.address))
+    }
+}
+
+async fn send_email(email: &MicrosoftMessage<'_>) -> Result<(), ErrorResponse> {
+    let token = SmtpOauthToken::get().await?;
+
+    let Some(uri) = RauthyConfig::get().vars.email.microsoft_graph_uri.as_ref() else {
+        return Err(ErrorResponse::new(
+            ErrorResponseType::Internal,
+            "`email.microsoft_graph_uri` is not set",
+        ));
+    };
+    debug!("SendMail URI: {uri}");
 
     let res = HTTP_CLIENT
         .get()
-        .unwrap()
-        .post(
-            RauthyConfig::get()
-                .vars
-                .email
-                .microsoft_graph_uri
-                .as_ref()
-                .unwrap(),
-        )
+        .ok_or_else(|| {
+            ErrorResponse::new(
+                ErrorResponseType::Internal,
+                "HTTP client is not initialized",
+            )
+        })?
+        .post(uri)
         .bearer_auth(token.access_token)
         .json(&email)
         .send()
         .await?;
 
-    let to = &email
-        .message
-        .to_recipients
-        .first()
-        .unwrap()
-        .email_address
-        .address;
     if res.status().is_success() {
-        info!("E-Mail to '{to}' sent successfully!");
         Ok(())
     } else {
         let status = res.status();
         let body = res.text().await.unwrap_or_default();
         Err(ErrorResponse::new(
             ErrorResponseType::Connection,
-            format!("Error sending E-Mail via Microsoft Graph to '{to}': HTTP {status} {body}"),
+            format!("Error sending E-Mail via Microsoft Graph: HTTP {status} {body}"),
         ))
     }
 }

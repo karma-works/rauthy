@@ -776,7 +776,10 @@ impl Event {
         )
     }
 
+    /// The recipient address is masked (`s***@example.org`), because the event text ends up in
+    /// logs and notifications.
     pub fn email_send_err(typ: mailer::EmailType, address: &str) -> Self {
+        let address = mask_email(address);
         Self::new(
             RauthyConfig::get()
                 .vars
@@ -1154,5 +1157,29 @@ impl From<Event> for EventResponse {
             data: e.data,
             text: e.text,
         }
+    }
+}
+
+/// Masks the local part of an E-Mail address, keeps its first character and the domain:
+/// `synthetic.user@example.org` -> `s***@example.org`.
+pub fn mask_email(address: &str) -> String {
+    match address.split_once('@') {
+        Some((local, domain)) => {
+            let first = local.chars().next().map(String::from).unwrap_or_default();
+            format!("{first}***@{domain}")
+        }
+        None => "***".to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_mask_email() {
+        assert_eq!(mask_email("synthetic.user@example.org"), "s***@example.org");
+        assert_eq!(mask_email("@example.org"), "***@example.org");
+        assert_eq!(mask_email("no-address"), "***");
     }
 }

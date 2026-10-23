@@ -1336,11 +1336,13 @@ smtp_tls_mode = 'danger-insecure'
 # overwritten by: SMTP_MICROSOFT_GRAPH_URI
 #microsoft_graph_uri = ''
 
-# The number of retries that should be done for connecting to
-# the given SMTP_URL.
-# When these retries are exceeded without success, Rauthy will
-# panic and exit, so no E-Mail can get lost silently because of
-# a missing SMTP connection.
+# The number of retries for fetching an XOAUTH2 token
+# (`smtp_conn_mode = 'xoauth2'` / `'microsoft_graph'`).
+# Rauthy never exits because of an unreachable SMTP server. It
+# connects for each E-Mail, tries it twice and drops it if it
+# still fails. A dropped E-Mail is logged at error level, emits
+# an `EmailSendError` event and is counted in the
+# `rauthy_email_failed_total` metric.
 #
 # default: 3
 # overwritten by: SMTP_CONNECT_RETRIES

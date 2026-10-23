@@ -31,7 +31,10 @@ impl EventNotifier {
         // if there will be more notifier targets in the future, a macro may make sense for a
         // cleaner code
 
+        // An E-Mail notification about a failed E-Mail would most probably fail as well and
+        // create the next `EmailSendError` event -> never notify about it via E-Mail.
         if let Some((level, notifier)) = NOTIFIER_EMAIL.get()
+            && event.typ != EventType::EmailSendError
             && (event.typ == EventType::Test || &event.level.value() >= level)
             && let Err(err) = notifier.notify(&notification).await
         {

@@ -218,6 +218,7 @@ async fn server_with_metrics() -> std::io::Result<()> {
     let listen_addr = RauthyConfig::get().vars.server.listen_address.to_string();
 
     let shared_registry = Registry::new();
+    rauthy_data::email::mailer_metrics::register(&shared_registry);
     let metrics = PrometheusMetricsBuilder::new("api")
         .registry(shared_registry.clone())
         .endpoint("/metrics")

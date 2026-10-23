@@ -4934,6 +4934,7 @@ dependencies = [
  "percent-encoding",
  "postgres-types",
  "pretty_assertions",
+ "prometheus",
  "rand_core 0.10.1",
  "rauthy-api-types",
  "rauthy-common",
