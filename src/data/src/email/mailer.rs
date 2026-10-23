@@ -26,13 +26,17 @@ use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
 /// How often a single E-Mail is tried before it is dropped. Together with the SMTP timeout this
-/// keeps the worst case for one E-Mail at roughly 21 seconds, which is below the 30 seconds an
+/// keeps the worst case for one E-Mail at roughly 25 seconds, which is below the 30 seconds an
 /// API caller waits for the result of a synchronous E-Mail (setup mail).
 pub(crate) const SEND_ATTEMPTS: u8 = 2;
 /// Pause between two attempts - maybe the network just had a short hiccup.
 pub(crate) const SEND_RETRY_BACKOFF: Duration = Duration::from_millis(500);
 /// Timeout for connecting to / talking with the SMTP server.
 const SMTP_TIMEOUT: Duration = Duration::from_secs(10);
+/// Hard upper bound for a single attempt. The SMTP timeout does not cover every phase (for
+/// instance a server that accepts the TCP connection but never sends its greeting), and a
+/// hanging attempt would block the whole queue.
+pub(crate) const ATTEMPT_TIMEOUT: Duration = Duration::from_secs(12);
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum EmailType {
@@ -117,12 +121,14 @@ pub(crate) trait Attempt {
     async fn attempt(&mut self) -> Result<(), String>;
 }
 
-/// Tries to deliver one E-Mail up to `attempts` times and updates the `rauthy_email_smtp_up`
-/// gauge after each attempt. Stops early when nobody waits for the result anymore.
+/// Tries to deliver one E-Mail up to `attempts` times, each bounded by `attempt_timeout`, and
+/// updates the `rauthy_email_smtp_up` gauge after each attempt. Stops early when nobody waits
+/// for the result anymore.
 pub(crate) async fn try_deliver<A: Attempt>(
     callback: &EMailCallback,
     attempts: u8,
     backoff: Duration,
+    attempt_timeout: Duration,
     sender: &mut A,
 ) -> Outcome {
     let mut last_err = String::from("no attempt was made");
@@ -135,7 +141,14 @@ pub(crate) async fn try_deliver<A: Attempt>(
             return Outcome::Abandoned;
         }
 
-        match sender.attempt().await {
+        let res = match tokio::time::timeout(attempt_timeout, sender.attempt()).await {
+            Ok(res) => res,
+            Err(_) => Err(format!(
+                "no result within {} seconds",
+                attempt_timeout.as_secs()
+            )),
+        };
+        match res {
             Ok(()) => {
                 mailer_metrics::set_smtp_up(true);
                 return Outcome::Sent;
@@ -359,7 +372,14 @@ async fn sender_default_smtp(smtp_url: &str, mut rx: mpsc::Receiver<(EMail, EMai
                     message: &message,
                     address: &address,
                 };
-                try_deliver(&callback, SEND_ATTEMPTS, SEND_RETRY_BACKOFF, &mut attempt).await
+                try_deliver(
+                    &callback,
+                    SEND_ATTEMPTS,
+                    SEND_RETRY_BACKOFF,
+                    ATTEMPT_TIMEOUT,
+                    &mut attempt,
+                )
+                .await
             }
             Err(err) => Outcome::Failed(err),
         };
@@ -493,11 +513,15 @@ mod tests {
     use crate::email::mailer_callback::EMailResult;
     use std::collections::VecDeque;
 
+    const TO: Duration = Duration::from_secs(5);
+
     struct FakeSender {
         results: VecDeque<Result<(), String>>,
         calls: usize,
         /// drops the receiver of the callback after this many calls
         drop_rx_after: Option<(usize, Option<tokio::sync::oneshot::Receiver<EMailResult>>)>,
+        /// never returns from `attempt()`
+        hang: bool,
     }
 
     impl FakeSender {
@@ -506,6 +530,7 @@ mod tests {
                 results: results.into(),
                 calls: 0,
                 drop_rx_after: None,
+                hang: false,
             }
         }
     }
@@ -513,6 +538,9 @@ mod tests {
     impl Attempt for FakeSender {
         async fn attempt(&mut self) -> Result<(), String> {
             self.calls += 1;
+            if self.hang {
+                std::future::pending::<()>().await;
+            }
             if let Some((after, rx)) = &mut self.drop_rx_after
                 && *after == self.calls
             {
@@ -532,7 +560,7 @@ mod tests {
         // success on the first attempt
         let (cb, rx) = EMailCallback::result();
         let mut s = FakeSender::new(vec![Ok(())]);
-        let outcome = try_deliver(&cb, SEND_ATTEMPTS, backoff, &mut s).await;
+        let outcome = try_deliver(&cb, SEND_ATTEMPTS, backoff, TO, &mut s).await;
         assert_eq!(outcome, Outcome::Sent);
         assert_eq!(s.calls, 1);
         assert_eq!(mailer_metrics::smtp_up(), 1);
@@ -544,7 +572,7 @@ mod tests {
         // success after a retry
         let (cb, rx) = EMailCallback::result();
         let mut s = FakeSender::new(vec![Err("hiccup".to_string()), Ok(())]);
-        let outcome = try_deliver(&cb, SEND_ATTEMPTS, backoff, &mut s).await;
+        let outcome = try_deliver(&cb, SEND_ATTEMPTS, backoff, TO, &mut s).await;
         assert_eq!(outcome, Outcome::Sent);
         assert_eq!(s.calls, 2);
         assert_eq!(mailer_metrics::smtp_up(), 1);
@@ -558,7 +586,7 @@ mod tests {
             Err("connection refused".to_string()),
             Ok(()),
         ]);
-        let outcome = try_deliver(&cb, SEND_ATTEMPTS, backoff, &mut s).await;
+        let outcome = try_deliver(&cb, SEND_ATTEMPTS, backoff, TO, &mut s).await;
         assert_eq!(outcome, Outcome::Failed("connection refused".to_string()));
         assert_eq!(s.calls, SEND_ATTEMPTS as usize);
         assert_eq!(mailer_metrics::smtp_up(), 0);
@@ -576,7 +604,7 @@ mod tests {
         // the sender recovers on the next E-Mail once SMTP is reachable again
         let (cb, rx) = EMailCallback::result();
         let mut s = FakeSender::new(vec![Ok(())]);
-        let outcome = try_deliver(&cb, SEND_ATTEMPTS, backoff, &mut s).await;
+        let outcome = try_deliver(&cb, SEND_ATTEMPTS, backoff, TO, &mut s).await;
         assert_eq!(outcome, Outcome::Sent);
         assert_eq!(mailer_metrics::smtp_up(), 1);
         record_outcome(EmailType::NewUser, cb, outcome).await;
@@ -586,7 +614,7 @@ mod tests {
         let (cb, rx) = EMailCallback::result();
         let mut s = FakeSender::new(vec![Err("timeout".to_string()), Ok(())]);
         s.drop_rx_after = Some((1, Some(rx)));
-        let outcome = try_deliver(&cb, SEND_ATTEMPTS, backoff, &mut s).await;
+        let outcome = try_deliver(&cb, SEND_ATTEMPTS, backoff, TO, &mut s).await;
         assert_eq!(outcome, Outcome::Abandoned);
         assert_eq!(s.calls, 1);
         // no event for abandoned mails, the waiting caller emits it
@@ -594,9 +622,32 @@ mod tests {
 
         // fire-and-forget E-Mails without a waiting caller are never abandoned
         let mut s = FakeSender::new(vec![Err("down".to_string()), Err("down".to_string())]);
-        let outcome = try_deliver(&EMailCallback::None, SEND_ATTEMPTS, backoff, &mut s).await;
+        let outcome = try_deliver(&EMailCallback::None, SEND_ATTEMPTS, backoff, TO, &mut s).await;
         assert_eq!(outcome, Outcome::Failed("down".to_string()));
         assert_eq!(s.calls, 2);
+    }
+
+    // A server that never answers must not block the queue: every attempt is bounded.
+    #[tokio::test(start_paused = true)]
+    async fn test_try_deliver_hanging_attempt() {
+        let mut s = FakeSender::new(vec![]);
+        s.hang = true;
+        let start = tokio::time::Instant::now();
+        let outcome = try_deliver(
+            &EMailCallback::None,
+            SEND_ATTEMPTS,
+            SEND_RETRY_BACKOFF,
+            ATTEMPT_TIMEOUT,
+            &mut s,
+        )
+        .await;
+        assert_eq!(
+            outcome,
+            Outcome::Failed("no result within 12 seconds".to_string())
+        );
+        assert_eq!(s.calls, SEND_ATTEMPTS as usize);
+        // well below the 30 seconds a setup mail caller waits
+        assert!(start.elapsed() < Duration::from_secs(30));
     }
 
     #[test]

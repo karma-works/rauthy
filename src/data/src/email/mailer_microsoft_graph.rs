@@ -1,6 +1,6 @@
 use crate::email::mailer::{
-    Attempt, EMail, EmailType, Outcome, SEND_ATTEMPTS, SEND_RETRY_BACKOFF, parse_from,
-    record_outcome, redact_address, try_deliver,
+    ATTEMPT_TIMEOUT, Attempt, EMail, EmailType, Outcome, SEND_ATTEMPTS, SEND_RETRY_BACKOFF,
+    parse_from, record_outcome, redact_address, try_deliver,
 };
 use crate::email::mailer_callback::EMailCallback;
 use crate::email::smtp_oauth_token::SmtpOauthToken;
@@ -134,7 +134,14 @@ pub async fn sender_microsoft_graph(mut rx: mpsc::Receiver<(EMail, EMailCallback
             email: &email,
             address: &address,
         };
-        let outcome = try_deliver(&callback, SEND_ATTEMPTS, SEND_RETRY_BACKOFF, &mut attempt).await;
+        let outcome = try_deliver(
+            &callback,
+            SEND_ATTEMPTS,
+            SEND_RETRY_BACKOFF,
+            ATTEMPT_TIMEOUT,
+            &mut attempt,
+        )
+        .await;
         if record_outcome(typ, callback, outcome).await {
             send_err_event(typ, &address).await;
         }
