@@ -43,6 +43,7 @@ async fn create_user(client: &Client, backend: &str, admin: &HeaderMap) -> UserR
         groups: None,
         user_expires: None,
         tz: None,
+        send_setup_mail: None,
     };
     let res = client
         .post(format!("{backend}/users"))

@@ -8,6 +8,7 @@ use crate::entity::theme::ThemeCssFull;
 use crate::entity::users::User;
 use crate::rauthy_config::RauthyConfig;
 use askama::Template;
+use rauthy_error::{ErrorResponse, ErrorResponseType};
 use std::time::Duration;
 use tracing::error;
 
@@ -47,7 +48,51 @@ pub struct EmailResetTxt<'a> {
     pub link_request_new: &'a str,
 }
 
+/// Sends the password reset / account setup E-Mail fire-and-forget.
 pub async fn send_pwd_reset(magic_link: &MagicLink, user: &User, user_tz: Option<&str>) {
+    let req = build_pwd_reset(magic_link, user, user_tz).await;
+    let typ = req.typ;
+
+    let res = RauthyConfig::get()
+        .tx_email
+        .send_timeout((req, EMailCallback::None), Duration::from_secs(10))
+        .await;
+    if let Err(err) = res {
+        error!(
+            user_id = user.id,
+            email_type = %typ,
+            error = %err,
+            "queueing password reset email",
+        );
+    }
+}
+
+/// Queues the password reset / account setup E-Mail with the given callback, which receives
+/// the result from the sender. Waits for free space in the queue as long as needed; the caller
+/// is expected to bound the total time.
+pub async fn queue_pwd_reset(
+    magic_link: &MagicLink,
+    user: &User,
+    user_tz: Option<&str>,
+    callback: EMailCallback,
+) -> Result<EmailType, ErrorResponse> {
+    let req = build_pwd_reset(magic_link, user, user_tz).await;
+    let typ = req.typ;
+
+    RauthyConfig::get()
+        .tx_email
+        .send((req, callback))
+        .await
+        .map_err(|_| {
+            ErrorResponse::new(
+                ErrorResponseType::ServiceUnavailable,
+                "The E-Mail sender is not running",
+            )
+        })?;
+    Ok(typ)
+}
+
+async fn build_pwd_reset(magic_link: &MagicLink, user: &User, user_tz: Option<&str>) -> EMail {
     let link = format!(
         "{}users/{}/reset/{}?type={}",
         RauthyConfig::get().issuer,
@@ -138,26 +183,16 @@ pub async fn send_pwd_reset(magic_link: &MagicLink, user: &User, user_tz: Option
         (i18n.subject, text, html)
     };
 
-    let req = EMail {
-        typ: EmailType::PasswordReset,
+    EMail {
+        typ: if is_new_user {
+            EmailType::NewUser
+        } else {
+            EmailType::PasswordReset
+        },
         recipient_name: user.email_recipient_name(),
         address: user.email.to_string(),
         subject: format!("{email_sub_prefix} - {subject}"),
         text: Some(text.render().expect("Template rendering: EmailResetTxt")),
         html: Some(html.render().expect("Template rendering: EmailResetHtml")),
-    };
-
-    let res = RauthyConfig::get()
-        .tx_email
-        .send_timeout((req, EMailCallback::None), Duration::from_secs(10))
-        .await;
-    match res {
-        Ok(_) => {}
-        Err(ref e) => {
-            error!(
-                user.email, error = ?e,
-                "sending password reset email",
-            );
-        }
     }
 }
