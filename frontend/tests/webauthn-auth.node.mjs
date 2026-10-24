@@ -89,3 +89,115 @@ test('login and authenticated service purposes keep the generic endpoint', async
         t.mock.restoreAll();
     }
 });
+
+/**
+ * A discoverable login up to `/webauthn_finish`, which answers with `finish`. Returns what the
+ * page sent and signalled.
+ */
+async function discoverWithFinish(t, finish, code = crypto.randomUUID()) {
+    const bytes = n => new Uint8Array(n).fill(7).buffer;
+    const credential = {
+        id: 'cred-id-b64url',
+        rawId: bytes(16),
+        type: 'public-key',
+        response: {
+            authenticatorData: bytes(37),
+            clientDataJSON: bytes(64),
+            signature: bytes(70),
+            userHandle: bytes(16),
+        },
+        getClientExtensionResults: () => ({}),
+    };
+    Object.defineProperty(globalThis.navigator, 'credentials', {
+        configurable: true,
+        value: { get: async () => credential },
+    });
+    const signals = [];
+    Object.defineProperty(globalThis, 'PublicKeyCredential', {
+        configurable: true,
+        value: {
+            signalUnknownCredential: async opts => {
+                signals.push(opts);
+            },
+        },
+    });
+    t.after(() => {
+        delete globalThis.navigator.credentials;
+        delete globalThis.PublicKeyCredential;
+    });
+
+    const calls = [];
+    t.mock.method(globalThis, 'fetch', async (path, options) => {
+        calls.push(path);
+        if (path === '/auth/v1/users/webauthn_start') {
+            return Response.json({
+                code,
+                exp: 30,
+                rcr: {
+                    publicKey: {
+                        challenge: 'AAAA',
+                        rpId: 'login.example.org',
+                        userVerification: 'required',
+                    },
+                },
+            });
+        }
+        assert.equal(path, '/auth/v1/users/webauthn_finish');
+        assert.equal(JSON.parse(options.body).code, code);
+        return finish();
+    });
+    t.mock.method(console, 'error', () => {});
+    const result = await webauthnAuth('Discover', 'invalid key', 'timeout');
+    return { result, calls, signals };
+}
+
+test('an unknown credential is reported and signalled to the browser', async t => {
+    const { result, calls, signals } = await discoverWithFinish(t, () =>
+        Response.json({ error: 'NotFound', message: 'Unknown Credential' }, { status: 404 }),
+    );
+    assert.equal(result.unknownCredential, true);
+    assert.equal(result.error, 'invalid key');
+    assert.deepEqual(signals, [{ rpId: 'login.example.org', credentialId: 'cred-id-b64url' }]);
+    assert.equal(calls.filter(c => c.endsWith('/webauthn_finish')).length, 1);
+});
+
+test('any other 404 never makes the browser hide the passkey', async t => {
+    const { result, signals } = await discoverWithFinish(t, () =>
+        Response.json({ error: 'NotFound', message: 'Not Found' }, { status: 404 }),
+    );
+    assert.equal(result.unknownCredential, undefined);
+    assert.deepEqual(signals, []);
+});
+
+test('a database error is no unknown credential', async t => {
+    const { result, signals } = await discoverWithFinish(t, () =>
+        Response.json(
+            { error: 'ServiceUnavailable', message: 'Database error during the passkey lookup' },
+            { status: 503 },
+        ),
+    );
+    assert.equal(result.unknownCredential, undefined);
+    assert.equal(result.error, 'Database error during the passkey lookup');
+    assert.deepEqual(signals, []);
+});
+
+test('a 401 from finish shows an error instead of reloading the page', async t => {
+    // `window` does not exist here: a `window.location.reload()` would throw
+    const { result } = await discoverWithFinish(t, () =>
+        Response.json({ error: 'Unauthorized', message: 'x' }, { status: 401 }),
+    );
+    assert.equal(result.error, 'invalid key');
+    assert.equal(result.unknownCredential, undefined);
+});
+
+test('the same ceremony code is finished only once', async t => {
+    const code = crypto.randomUUID();
+    const finish = () => Response.json({ resident_key_token: 'rk' }, { status: 202 });
+    const first = await discoverWithFinish(t, finish, code);
+    assert.deepEqual(first.result.data, { resident_key_token: 'rk' });
+    t.mock.restoreAll();
+
+    const second = await discoverWithFinish(t, finish, code);
+    assert.ok(second.result.error);
+    assert.deepEqual(second.calls, ['/auth/v1/users/webauthn_start']);
+});

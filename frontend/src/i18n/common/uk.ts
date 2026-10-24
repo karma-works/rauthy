@@ -203,6 +203,10 @@ export const I18nUk: I18n = {
         orLoginWith: 'або увійдіть за допомогою',
         passkeyNotDiscovered: `Passkey, додані не як Resident Key, не можна знайти цим способом.
             Натомість введіть адресу E-Mail.`,
+        passkeyUnknown:
+            'This passkey is not (or no longer) registered with us. Use "Lost your passkey?" with a recovery code or contact your administrator.',
+        passkeyUnknownNoRecovery:
+            'This passkey is not (or no longer) registered with us. Please contact your administrator.',
         password: 'Пароль',
         passwordExpired: 'Password has expired. An E-Mail with a reset link was sent.',
         passwordForgotten: 'Забули пароль?',

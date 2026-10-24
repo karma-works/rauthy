@@ -168,6 +168,9 @@ pub enum EventType {
     RecoveryCodeUsed,
     RecoveryCodeFailed,
     RecoveryCodesRegenerated,
+    PasskeyAdded,
+    PasskeyRemoved,
+    PasskeyAuthFailed,
 }
 
 impl Display for EventType {
@@ -200,6 +203,9 @@ impl Display for EventType {
             Self::RecoveryCodeUsed => write!(f, "Recovery code used"),
             Self::RecoveryCodeFailed => write!(f, "Recovery code failed"),
             Self::RecoveryCodesRegenerated => write!(f, "Recovery codes regenerated"),
+            Self::PasskeyAdded => write!(f, "Passkey added"),
+            Self::PasskeyRemoved => write!(f, "Passkey removed"),
+            Self::PasskeyAuthFailed => write!(f, "Passkey login failed"),
         }
     }
 }
@@ -238,6 +244,9 @@ impl From<rauthy_api_types::events::EventType> for EventType {
             rauthy_api_types::events::EventType::RecoveryCodesRegenerated => {
                 Self::RecoveryCodesRegenerated
             }
+            rauthy_api_types::events::EventType::PasskeyAdded => Self::PasskeyAdded,
+            rauthy_api_types::events::EventType::PasskeyRemoved => Self::PasskeyRemoved,
+            rauthy_api_types::events::EventType::PasskeyAuthFailed => Self::PasskeyAuthFailed,
         }
     }
 }
@@ -272,6 +281,9 @@ impl From<EventType> for rauthy_api_types::events::EventType {
             EventType::RecoveryCodeUsed => Self::RecoveryCodeUsed,
             EventType::RecoveryCodeFailed => Self::RecoveryCodeFailed,
             EventType::RecoveryCodesRegenerated => Self::RecoveryCodesRegenerated,
+            EventType::PasskeyAdded => Self::PasskeyAdded,
+            EventType::PasskeyRemoved => Self::PasskeyRemoved,
+            EventType::PasskeyAuthFailed => Self::PasskeyAuthFailed,
         }
     }
 }
@@ -306,6 +318,9 @@ impl EventType {
             Self::RecoveryCodeUsed => "RecoveryCodeUsed",
             Self::RecoveryCodeFailed => "RecoveryCodeFailed",
             Self::RecoveryCodesRegenerated => "RecoveryCodesRegenerated",
+            Self::PasskeyAdded => "PasskeyAdded",
+            Self::PasskeyRemoved => "PasskeyRemoved",
+            Self::PasskeyAuthFailed => "PasskeyAuthFailed",
         }
     }
 
@@ -341,6 +356,9 @@ impl EventType {
             EventType::RecoveryCodeUsed => 24,
             EventType::RecoveryCodeFailed => 25,
             EventType::RecoveryCodesRegenerated => 26,
+            EventType::PasskeyAdded => 27,
+            EventType::PasskeyRemoved => 28,
+            EventType::PasskeyAuthFailed => 29,
         }
     }
 }
@@ -375,6 +393,9 @@ impl From<String> for EventType {
             "RecoveryCodeUsed" => Self::RecoveryCodeUsed,
             "RecoveryCodeFailed" => Self::RecoveryCodeFailed,
             "RecoveryCodesRegenerated" => Self::RecoveryCodesRegenerated,
+            "PasskeyAdded" => Self::PasskeyAdded,
+            "PasskeyRemoved" => Self::PasskeyRemoved,
+            "PasskeyAuthFailed" => Self::PasskeyAuthFailed,
             // just return test to never panic
             s => {
                 error!("EventType::from() for invalid String: {s}");
@@ -420,6 +441,9 @@ impl From<i64> for EventType {
             24 => EventType::RecoveryCodeUsed,
             25 => EventType::RecoveryCodeFailed,
             26 => EventType::RecoveryCodesRegenerated,
+            27 => EventType::PasskeyAdded,
+            28 => EventType::PasskeyRemoved,
+            29 => EventType::PasskeyAuthFailed,
             _ => EventType::Test,
         }
     }
@@ -533,7 +557,10 @@ impl From<&Event> for Notification {
             EventType::EmailSendError => value.text.clone(),
             EventType::RecoveryCodeUsed
             | EventType::RecoveryCodeFailed
-            | EventType::RecoveryCodesRegenerated => value.text.clone(),
+            | EventType::RecoveryCodesRegenerated
+            | EventType::PasskeyAdded
+            | EventType::PasskeyRemoved
+            | EventType::PasskeyAuthFailed => value.text.clone(),
         };
 
         Self {
@@ -778,6 +805,40 @@ impl Event {
 
     /// The recipient address is masked (`s***@example.org`), because the event text ends up in
     /// logs and notifications.
+    /// A passkey was registered. `text` names the user ID and the path, never the E-Mail.
+    pub fn passkey_added(text: String, ip: Option<String>) -> Self {
+        Self::new(
+            EventLevel::Info,
+            EventType::PasskeyAdded,
+            ip,
+            None,
+            Some(text),
+        )
+    }
+
+    /// A passkey was deleted. `text` names the user ID and who removed it.
+    pub fn passkey_removed(text: String, ip: Option<String>) -> Self {
+        Self::new(
+            EventLevel::Notice,
+            EventType::PasskeyRemoved,
+            ip,
+            None,
+            Some(text),
+        )
+    }
+
+    /// A passkey login failed after the browser returned a credential. `text` names the
+    /// reason and, if known, the user ID.
+    pub fn passkey_auth_failed(text: String, ip: Option<String>) -> Self {
+        Self::new(
+            EventLevel::Notice,
+            EventType::PasskeyAuthFailed,
+            ip,
+            None,
+            Some(text),
+        )
+    }
+
     pub fn email_send_err(typ: mailer::EmailType, address: &str) -> Self {
         let address = mask_email(address);
         Self::new(
@@ -1127,7 +1188,10 @@ impl Event {
             EventType::EmailSendError => self.text.clone().unwrap_or_default(),
             EventType::RecoveryCodeUsed
             | EventType::RecoveryCodeFailed
-            | EventType::RecoveryCodesRegenerated => self.text.clone().unwrap_or_default(),
+            | EventType::RecoveryCodesRegenerated
+            | EventType::PasskeyAdded
+            | EventType::PasskeyRemoved
+            | EventType::PasskeyAuthFailed => self.text.clone().unwrap_or_default(),
         }
     }
 
@@ -1181,5 +1245,23 @@ mod tests {
         assert_eq!(mask_email("synthetic.user@example.org"), "s***@example.org");
         assert_eq!(mask_email("@example.org"), "***@example.org");
         assert_eq!(mask_email("no-address"), "***");
+    }
+
+    /// The integer of an event type is stored in the database and must never change.
+    #[test]
+    fn test_event_type_values_are_stable() {
+        assert_eq!(EventType::InvalidLogins.value(), 0);
+        assert_eq!(EventType::RecoveryCodesRegenerated.value(), 26);
+        for (typ, v) in [
+            (EventType::PasskeyAdded, 27),
+            (EventType::PasskeyRemoved, 28),
+            (EventType::PasskeyAuthFailed, 29),
+        ] {
+            assert_eq!(typ.value(), v);
+            assert_eq!(EventType::from(v as i64), typ);
+            assert_eq!(EventType::from(typ.as_str().to_string()), typ);
+            let api: rauthy_api_types::events::EventType = typ.clone().into();
+            assert_eq!(EventType::from(api), typ);
+        }
     }
 }

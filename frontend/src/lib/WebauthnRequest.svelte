@@ -20,7 +20,8 @@
         purpose: MfaPurpose;
         resetUserId?: string;
         hints?: PasskeyHint[];
-        onError: (error: string) => void;
+        /** `unknownCredential`: see `WebauthnAuthResult.unknownCredential` */
+        onError: (error: string, unknownCredential?: boolean) => void;
         onSuccess: (res?: WebauthnAdditionalData) => void;
     } = $props();
 
@@ -42,7 +43,7 @@
         if (webauthnRes) {
             if (webauthnRes.error) {
                 setTimeout(() => {
-                    onError(webauthnRes?.error || 'Webauthn Error');
+                    onError(webauthnRes?.error || 'Webauthn Error', webauthnRes?.unknownCredential);
                 }, 3000);
             } else {
                 onSuccess(webauthnRes.data);

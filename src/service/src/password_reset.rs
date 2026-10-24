@@ -97,17 +97,18 @@ pub async fn handle_put_user_passkey_start(
 
     // if we register a new passkey, we need to make sure that the magic link is for a new user
     // or a recovery
-    match MagicLinkUsage::try_from(&ml.usage)? {
-        MagicLinkUsage::NewUser(_) | MagicLinkUsage::PasskeyRecovery => {}
+    let ctx = match MagicLinkUsage::try_from(&ml.usage)? {
+        MagicLinkUsage::NewUser(_) => RegContext::NewUser,
+        MagicLinkUsage::PasskeyRecovery => RegContext::Recovery,
         _ => {
             return Err(ErrorResponse::new(
                 ErrorResponseType::Forbidden,
                 "You cannot register a new passkey here for an existing user",
             ));
         }
-    }
+    };
 
-    webauthn::register::reg_start(user.id, req_data)
+    webauthn::register::reg_start(user.id, req_data, ctx)
         .await
         .map(|ccr| HttpResponse::Ok().json(ccr))
 }

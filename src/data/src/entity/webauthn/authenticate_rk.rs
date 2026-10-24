@@ -3,9 +3,11 @@ use crate::entity::login_locations::LoginLocation;
 use crate::entity::sessions::{MfaMethod, Session};
 use crate::entity::users::User;
 use crate::entity::webauthn::auth_data::{WebauthnAdditionalData, WebauthnData};
-use crate::entity::webauthn::passkey::PasskeyEntity;
+use crate::entity::webauthn::passkey::{PasskeyEntity, needs_rk_heal};
 use crate::entity::webauthn::rk_token::ResidentKeyToken;
-use crate::entity::webauthn::verify_attestation;
+use crate::entity::webauthn::{
+    AuthFailReason, AuthPath, cred_log_id, log_auth_failed, log_auth_ok, verify_attestation,
+};
 use crate::rauthy_config::RauthyConfig;
 use actix_web::HttpRequest;
 use chrono::Utc;
@@ -94,7 +96,20 @@ pub async fn auth_finish_discover(
         ));
     };
 
-    let mut pk_entity = PasskeyEntity::find_rk_by_cred_id(pubkey_cred.get_credential_id()).await?;
+    let path = Some(AuthPath::Discoverable);
+    let cred_id = pubkey_cred.get_credential_id();
+    let mut pk_entity = match PasskeyEntity::find_rk_by_cred_id(cred_id).await {
+        Ok(pk) => pk,
+        Err(err) => {
+            let reason = if err.error == ErrorResponseType::NotFound {
+                AuthFailReason::UnknownCredential
+            } else {
+                AuthFailReason::Db
+            };
+            log_auth_failed(req, path, reason, Some(cred_id), None).await;
+            return Err(err);
+        }
+    };
     let cred = Credential::from(pk_entity.get_pk());
 
     // This step is a bit tricky. We need to allow the credential we just discovered in the
@@ -120,25 +135,41 @@ pub async fn auth_finish_discover(
     let json = serde_json::to_string(&state_local)?;
     let auth_state = serde_json::from_str(&json)?;
 
+    let uid = Some(pk_entity.user_id.as_str());
     match RauthyConfig::get()
         .webauthn
         .finish_passkey_authentication(&pubkey_cred, &auth_state)
     {
         Ok(auth_result) => {
-            verify_attestation(
+            if let Err(err) = verify_attestation(
                 pk_entity.aaguid.as_deref(),
                 &pk_entity.user_id,
                 &pk_entity.name,
             )
-            .await?;
+            .await
+            {
+                log_auth_failed(req, path, AuthFailReason::Attestation, Some(cred_id), uid).await;
+                return Err(err);
+            }
 
             if RauthyConfig::get().vars.webauthn.force_uv && !auth_result.user_verified() {
+                log_auth_failed(req, path, AuthFailReason::UvMissing, Some(cred_id), uid).await;
                 return Err(ErrorResponse::new(
                     ErrorResponseType::Forbidden,
                     "User Verification missing",
                 ));
             }
-            let Some(user_handle) = pubkey_cred.response.user_handle else {
+            // The User Handle binds the credential to the user. This check must stay, even
+            // though the lookup above only uses the credential ID.
+            let Some(user_handle) = pubkey_cred.response.user_handle.as_ref() else {
+                log_auth_failed(
+                    req,
+                    path,
+                    AuthFailReason::UserHandleMismatch,
+                    Some(cred_id),
+                    uid,
+                )
+                .await;
                 return Err(ErrorResponse::new(
                     ErrorResponseType::Forbidden,
                     "User Handle missing",
@@ -149,6 +180,14 @@ pub async fn auth_finish_discover(
             let pk_uuid =
                 Uuid::from_str(&pk_entity.passkey_user_id).expect("to always be a valid UUID");
             if pk_uuid != user_uuid {
+                log_auth_failed(
+                    req,
+                    path,
+                    AuthFailReason::UserHandleMismatch,
+                    Some(cred_id),
+                    uid,
+                )
+                .await;
                 return Err(ErrorResponse::new(
                     ErrorResponseType::Forbidden,
                     "Invalid User Handle",
@@ -159,6 +198,14 @@ pub async fn auth_finish_discover(
             if let Some(suid) = &session.user_id
                 && suid != &user.id
             {
+                log_auth_failed(
+                    req,
+                    path,
+                    AuthFailReason::SessionMismatch,
+                    Some(cred_id),
+                    uid,
+                )
+                .await;
                 return Err(ErrorResponse::new(
                     ErrorResponseType::Forbidden,
                     "User ID mismatch for session",
@@ -175,6 +222,22 @@ pub async fn auth_finish_discover(
 
             LoginLocation::spawn_background_check(user.clone(), req, browser_id.clone())?;
 
+            // The browser just offered this credential without an allow list, so it is
+            // discoverable, whatever the registration reported.
+            if needs_rk_heal(pk_entity.resident_key) {
+                let before = pk_entity.resident_key;
+                match pk_entity.set_resident_key().await {
+                    Ok(()) => info!(
+                        user_id = user.id,
+                        cred = cred_log_id(cred_id).as_deref(),
+                        resident_key_before = ?before,
+                        "webauthn.rk.healed"
+                    ),
+                    // The login itself was fine, and the next one tries again.
+                    Err(err) => error!(?err, user_id = user.id, "webauthn.rk.heal failed"),
+                }
+            }
+
             if auth_result.needs_update() {
                 let now = Utc::now().timestamp();
                 let mut pk = pk_entity.get_pk();
@@ -185,13 +248,14 @@ pub async fn auth_finish_discover(
                 }
             }
 
-            info!(user.id = user.id, "Webauthn Authentication successful");
+            log_auth_ok(AuthPath::Discoverable, cred_id, &user.id);
 
             let token = ResidentKeyToken::new(session.id, browser_id).await?;
             Ok(WebauthnAdditionalData::Discover(Some(token.code)))
         }
         Err(err) => {
             error!(?err, "Webauthn Auth Finish");
+            log_auth_failed(req, path, AuthFailReason::Verification, Some(cred_id), uid).await;
             Err(ErrorResponse::new(
                 ErrorResponseType::Unauthorized,
                 err.to_string(),

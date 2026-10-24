@@ -4,6 +4,37 @@
 
 ### Changes
 
+#### Discoverable Passkey Login for Passkeys without `resident_key`
+
+Browsers do not always report `credProps` during a registration (iOS Chrome, Android), so a
+discoverable passkey could be stored with `resident_key = NULL` and was then never found by the
+discoverable login ("Unknown Resident Key", the page simply reloaded).
+
+- The discoverable login looks up the credential by its ID only. The User Handle check against
+  the stored passkey stays. After a successful login, `resident_key` is set to `true`.
+- A database error during the lookup is a `503` / `500` and no longer looks like an unknown
+  credential.
+- An unknown credential returns `404` from `/users/webauthn_finish`. The login page explains it,
+  links to the recovery (with `webauthn.recovery_codes`) and calls
+  `PublicKeyCredential.signalUnknownCredential()` where the browser supports it. Other `401`s of
+  this request show an error instead of reloading the page, and a ceremony code is only ever
+  finished once.
+- Structured logs `webauthn.reg.start`, `webauthn.reg.finish`, `webauthn.auth.finish`,
+  `webauthn.rk.healed` and `webauthn.delete` with the user ID, the path, a result and `cred`. The
+  new, optional `webauthn.log_cred_hmac_key` (`WEBAUTHN_LOG_CRED_HMAC_KEY`) is the secret for
+  `cred`, an HMAC-SHA256 of the credential ID cut to 16 hex characters. Without it, `cred` is
+  left out, with a warning at startup. Logs contain no E-Mail, passkey name or credential ID.
+- New events `PasskeyAdded`, `PasskeyRemoved` (with who removed it) and `PasskeyAuthFailed` (with
+  the reason), without the E-Mail.
+- The access log contains the status code of each request.
+
+```toml
+[webauthn]
+# default: not set
+# overwritten by: WEBAUTHN_LOG_CRED_HMAC_KEY
+#log_cred_hmac_key = ''
+```
+
 #### Shared Devices with a PIN Login
 
 With the new `[shared_devices]` (`SHARED_DEVICES_ENABLE`, `SHARED_DEVICES_CLIENT_IDS`), browsers

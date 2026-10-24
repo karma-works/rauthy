@@ -155,6 +155,8 @@ export interface I18n {
         needsUserUpdate: string;
         orLoginWith: string;
         passkeyNotDiscovered: string;
+        passkeyUnknown: string;
+        passkeyUnknownNoRecovery: string;
         password: string;
         passwordExpired: string;
         passwordForgotten: string;

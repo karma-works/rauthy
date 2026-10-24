@@ -201,6 +201,10 @@ export const I18nFr: I18n = {
         orLoginWith: 'ou se connecter avec',
         passkeyNotDiscovered: `Les Passkeys qui n'ont pas été ajoutées comme Resident Key ne
             peuvent pas être trouvées de cette façon. Saisissez plutôt votre adresse e-mail.`,
+        passkeyUnknown:
+            'This passkey is not (or no longer) registered with us. Use "Lost your passkey?" with a recovery code or contact your administrator.',
+        passkeyUnknownNoRecovery:
+            'This passkey is not (or no longer) registered with us. Please contact your administrator.',
         password: 'Mot de passe',
         passwordExpired:
             'Le mot de passe a expiré. Un e-mail contenant un lien de réinitialisation a été envoyé.',

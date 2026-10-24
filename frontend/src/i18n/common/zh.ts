@@ -183,6 +183,10 @@ export const I18nZh: I18n = {
         orLoginWith: '或使用其他方式登录：',
         passkeyNotDiscovered:
             '未作为 Resident Key 添加的 Passkey 无法通过此方式找到。请改为输入电子邮件地址。',
+        passkeyUnknown:
+            'This passkey is not (or no longer) registered with us. Use "Lost your passkey?" with a recovery code or contact your administrator.',
+        passkeyUnknownNoRecovery:
+            'This passkey is not (or no longer) registered with us. Please contact your administrator.',
         password: '密码',
         passwordExpired: 'Password has expired. An E-Mail with a reset link was sent.',
         passwordForgotten: '忘记密码？',

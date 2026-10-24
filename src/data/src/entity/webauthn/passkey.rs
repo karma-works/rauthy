@@ -14,7 +14,49 @@ use rauthy_error::{ErrorResponse, ErrorResponseType};
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
 use std::ops::Add;
+use tracing::error;
 use webauthn_rs::prelude::{CredentialID, Passkey, Uuid};
+
+/// The message of the `NotFound` for a credential that is not (or no longer) registered.
+/// `api::users::post_webauthn_auth_finish_login` matches on it.
+pub const UNKNOWN_CREDENTIAL: &str = "Unknown Credential";
+
+const SQL_FIND_BY_CRED_ID: &str = "SELECT * FROM passkeys WHERE credential_id = $1";
+const SQL_SET_RESIDENT_KEY: &str =
+    "UPDATE passkeys SET resident_key = true WHERE user_id = $1 AND name = $2";
+
+/// `Ok(None)` is an unknown credential, which the UI handles. A database error must not look
+/// like one, so the user is not sent to the recovery for a passkey that still works.
+fn rk_lookup_result(
+    res: Result<Option<PasskeyEntity>, ErrorResponse>,
+) -> Result<PasskeyEntity, ErrorResponse> {
+    match res {
+        Ok(Some(pk)) => Ok(pk),
+        Ok(None) => Err(ErrorResponse::new(
+            ErrorResponseType::NotFound,
+            UNKNOWN_CREDENTIAL,
+        )),
+        Err(err) => {
+            error!(?err, "Looking up a discoverable credential");
+            let typ = match err.error {
+                ErrorResponseType::Connection
+                | ErrorResponseType::DatabaseIo
+                | ErrorResponseType::ServiceUnavailable => ErrorResponseType::ServiceUnavailable,
+                _ => ErrorResponseType::Internal,
+            };
+            Err(ErrorResponse::new(
+                typ,
+                "Database error during the passkey lookup",
+            ))
+        }
+    }
+}
+
+/// Whether a passkey used in a discoverable login still needs `resident_key = true`.
+#[inline]
+pub fn needs_rk_heal(resident_key: Option<bool>) -> bool {
+    resident_key != Some(true)
+}
 
 #[derive(Clone, Deserialize, Serialize, FromPgRow)]
 pub struct PasskeyEntity {
@@ -316,23 +358,52 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"#;
         Ok(slf)
     }
 
+    /// Finds the passkey for a credential the browser offered in a discoverable login.
+    ///
+    /// Deliberately not limited to `resident_key = true`: browsers do not always report the
+    /// `credProps` during the registration (iOS Chrome, Android), so the column can be `NULL`
+    /// for a discoverable credential. A credential offered without an allow list is
+    /// discoverable. Which user it belongs to is still checked against the User Handle in
+    /// `authenticate_rk::auth_finish_discover`.
     pub async fn find_rk_by_cred_id(cred_id: &[u8]) -> Result<Self, ErrorResponse> {
-        let sql = "SELECT * FROM passkeys WHERE credential_id = $1 AND resident_key = true";
-
-        let slf = if is_hiqlite() {
+        let res = if is_hiqlite() {
             DB::hql()
-                .query_as_one(sql, params!(cred_id))
+                .query_as_optional(SQL_FIND_BY_CRED_ID, params!(cred_id))
                 .await
-                .map_err(|_| {
-                    ErrorResponse::new(ErrorResponseType::NotFound, "Unknown Resident Key")
-                })?
+                .map_err(ErrorResponse::from)
         } else {
-            DB::pg_query_one(sql, &[&cred_id]).await.map_err(|_| {
-                ErrorResponse::new(ErrorResponseType::NotFound, "Unknown Resident Key")
-            })?
+            DB::pg_query_opt(SQL_FIND_BY_CRED_ID, &[&cred_id]).await
         };
+        rk_lookup_result(res)
+    }
 
-        Ok(slf)
+    /// Self-healing for passkeys that were stored without `resident_key = true`, after they
+    /// were just used in a discoverable login.
+    pub async fn set_resident_key(&mut self) -> Result<(), ErrorResponse> {
+        if is_hiqlite() {
+            DB::hql()
+                .execute(SQL_SET_RESIDENT_KEY, params!(&self.user_id, &self.name))
+                .await?;
+        } else {
+            DB::pg_execute(SQL_SET_RESIDENT_KEY, &[&self.user_id, &self.name]).await?;
+        }
+        self.resident_key = Some(true);
+
+        let client = DB::hql();
+        client
+            .delete(
+                Cache::Webauthn,
+                Self::cache_idx_single(&self.user_id, &self.name),
+            )
+            .await?;
+        client
+            .delete(Cache::Webauthn, Self::cache_idx_user(&self.user_id))
+            .await?;
+        client
+            .delete(Cache::Webauthn, Self::cache_idx_user_with_uv(&self.user_id))
+            .await?;
+
+        Ok(())
     }
 
     pub async fn find_cred_ids_for_user(user_id: &str) -> Result<Vec<CredentialID>, ErrorResponse> {
@@ -533,5 +604,156 @@ fn format_aaguid(aaguid: &[u8]) -> String {
         )
     } else {
         hex
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rusqlite::{Connection, OptionalExtension};
+
+    /// The filter before the fix: credentials registered without `credProps` were never found.
+    const SQL_FIND_BY_CRED_ID_OLD: &str =
+        "SELECT * FROM passkeys WHERE credential_id = $1 AND resident_key = true";
+
+    /// An in-memory SQLite with the real Hiqlite migrations, so the statements run against the
+    /// production schema.
+    fn db() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = OFF").unwrap();
+
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../migrations/hiqlite");
+        let mut files = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .filter(|p| p.extension().is_some_and(|e| e == "sql"))
+            .collect::<Vec<_>>();
+        let num = |p: &std::path::PathBuf| -> u32 {
+            let name = p.file_name().unwrap().to_str().unwrap();
+            name.split('_').next().unwrap().parse().unwrap()
+        };
+        files.sort_by_key(num);
+        for f in files {
+            let sql = std::fs::read_to_string(&f).unwrap();
+            conn.execute_batch(&sql)
+                .unwrap_or_else(|err| panic!("migration {f:?}: {err}"));
+        }
+        // the test rows have no `users` row, and a migration enables the FK checks
+        conn.execute_batch("PRAGMA foreign_keys = OFF").unwrap();
+
+        for (name, cred_id, rk) in [
+            ("rk-null", b"cred-null".as_slice(), None),
+            ("rk-false", b"cred-false".as_slice(), Some(false)),
+            ("rk-true", b"cred-true".as_slice(), Some(true)),
+        ] {
+            conn.execute(
+                "INSERT INTO passkeys (user_id, name, passkey_user_id, passkey, credential_id, \
+                registered, last_used, user_verified, resident_key) \
+                VALUES ('user-1', ?1, 'pk-user-1', '{}', ?2, 1, 1, 1, ?3)",
+                rusqlite::params![name, cred_id, rk],
+            )
+            .unwrap();
+        }
+        conn
+    }
+
+    fn find(conn: &Connection, sql: &str, cred_id: &[u8]) -> Option<(String, Option<bool>)> {
+        conn.query_row(sql, [cred_id], |row| {
+            Ok((
+                row.get::<_, String>("name")?,
+                row.get::<_, Option<bool>>("resident_key")?,
+            ))
+        })
+        .optional()
+        .unwrap()
+    }
+
+    #[test]
+    fn test_find_by_cred_id_ignores_resident_key() {
+        let conn = db();
+        for (cred_id, name, rk) in [
+            (b"cred-null".as_slice(), "rk-null", None),
+            (b"cred-false".as_slice(), "rk-false", Some(false)),
+            (b"cred-true".as_slice(), "rk-true", Some(true)),
+        ] {
+            assert_eq!(
+                find(&conn, SQL_FIND_BY_CRED_ID, cred_id),
+                Some((name.to_string(), rk)),
+            );
+        }
+        assert_eq!(find(&conn, SQL_FIND_BY_CRED_ID, b"cred-unknown"), None);
+
+        // the incident of 2026-10-24: the old filter missed NULL and false
+        assert_eq!(find(&conn, SQL_FIND_BY_CRED_ID_OLD, b"cred-null"), None);
+        assert_eq!(find(&conn, SQL_FIND_BY_CRED_ID_OLD, b"cred-false"), None);
+    }
+
+    #[test]
+    fn test_set_resident_key_heals_only_the_one_passkey() {
+        let conn = db();
+        for name in ["rk-null", "rk-false", "rk-true"] {
+            let changed = conn
+                .execute(SQL_SET_RESIDENT_KEY, ["user-1", name])
+                .unwrap();
+            assert_eq!(changed, 1);
+        }
+        for cred_id in [b"cred-null".as_slice(), b"cred-false", b"cred-true"] {
+            let (_, rk) = find(&conn, SQL_FIND_BY_CRED_ID, cred_id).unwrap();
+            assert_eq!(rk, Some(true));
+        }
+        assert_eq!(
+            conn.execute(SQL_SET_RESIDENT_KEY, ["user-2", "rk-null"])
+                .unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn test_needs_rk_heal() {
+        assert!(needs_rk_heal(None));
+        assert!(needs_rk_heal(Some(false)));
+        assert!(!needs_rk_heal(Some(true)));
+    }
+
+    fn entity() -> PasskeyEntity {
+        PasskeyEntity {
+            user_id: "user-1".to_string(),
+            name: "rk-null".to_string(),
+            passkey_user_id: "pk-user-1".to_string(),
+            passkey: "{}".to_string(),
+            credential_id: b"cred-null".to_vec(),
+            registered: 1,
+            last_used: 1,
+            user_verified: Some(true),
+            resident_key: None,
+            aaguid: None,
+            kind: None,
+        }
+    }
+
+    #[test]
+    fn test_rk_lookup_result_separates_errors() {
+        let pk = rk_lookup_result(Ok(Some(entity()))).unwrap();
+        assert_eq!(pk.name, "rk-null");
+
+        let err = rk_lookup_result(Ok(None)).unwrap_err();
+        assert_eq!(err.error, ErrorResponseType::NotFound);
+        assert_eq!(err.message, UNKNOWN_CREDENTIAL);
+
+        for typ in [
+            ErrorResponseType::Connection,
+            ErrorResponseType::DatabaseIo,
+            ErrorResponseType::ServiceUnavailable,
+        ] {
+            let err = rk_lookup_result(Err(ErrorResponse::new(typ, "pool timeout"))).unwrap_err();
+            assert_eq!(err.error, ErrorResponseType::ServiceUnavailable);
+            assert_ne!(err.message, UNKNOWN_CREDENTIAL);
+        }
+
+        // never a NotFound for a database error, so the UI does not send people to recovery
+        for typ in [ErrorResponseType::Database, ErrorResponseType::NotFound] {
+            let err = rk_lookup_result(Err(ErrorResponse::new(typ, "x"))).unwrap_err();
+            assert_eq!(err.error, ErrorResponseType::Internal);
+        }
     }
 }

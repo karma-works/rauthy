@@ -42,7 +42,10 @@ after(async () => browser?.close());
  * Opens the login page with mocked backend responses. `authorize` answers the final
  * `POST /oidc/authorize` and receives its JSON body.
  */
-async function openLogin(t, { layout, width = 1280, height = 800, authorize, recovery = false }) {
+async function openLogin(
+    t,
+    { layout, width = 1280, height = 800, authorize, recovery = false, finish },
+) {
     const context = await browser.newContext({
         serviceWorkers: 'block',
         locale: 'de-DE',
@@ -131,6 +134,7 @@ async function openLogin(t, { layout, width = 1280, height = 800, authorize, rec
         }
         if (url.pathname === '/auth/v1/users/webauthn_finish') {
             assert.equal(request.postDataJSON().code, 'discover-1');
+            if (finish) return finish(route);
             return route.fulfill({ status: 202, json: { resident_key_token: 'rk-token-1' } });
         }
         if (url.pathname === documentPath) {
@@ -380,5 +384,50 @@ test('split layout: the recovery link only shows with recovery codes', async t =
                 .waitFor();
             assert.equal(await link.count(), 0);
         }
+    }
+});
+
+test('split layout: a passkey unknown to the backend shows the recovery instead of a reload', async t => {
+    for (const recovery of [true, false]) {
+        const { page, requests } = await openLogin(t, {
+            layout: 'split',
+            recovery,
+            authorize: () => assert.fail('must not log in'),
+            finish: route =>
+                route.fulfill({
+                    status: 404,
+                    json: { error: 'NotFound', message: 'Unknown Credential' },
+                }),
+        });
+        await page.getByRole('heading', { name: 'Anmelden bei ArztAgent' }).waitFor();
+        await addPasskey(page);
+        // a reload would drop this
+        await page.evaluate(() => (window.__notReloaded = true));
+        await page.getByRole('button', { name: 'Mit Passkey anmelden' }).click();
+
+        const existingCard = page.getByRole('region', {
+            name: 'Ich habe mich hier schon angemeldet',
+        });
+        const alert = existingCard
+            .getByRole('alert')
+            .filter({ hasText: 'Dieser Passkey ist bei uns nicht (mehr) hinterlegt.' });
+        await alert.waitFor({ timeout: 20000 });
+        const text = await alert.textContent();
+        // not the hint for a device without any passkey
+        assert.ok(!text.includes('Auf diesem Gerät wurde kein Passkey gefunden'));
+        // says nothing about an account
+        assert.ok(!/konto|account|e-mail/i.test(text), text);
+        const link = alert.getByRole('link', { name: 'Mit Wiederherstellungscode fortfahren' });
+        if (recovery) {
+            assert.ok(text.includes('Wiederherstellungscode'));
+            assert.equal(await link.getAttribute('href'), '/auth/v1/users/recover');
+        } else {
+            assert.ok(text.includes('Bitte wenden Sie sich an Ihre Administration.'));
+            assert.equal(await link.count(), 0);
+        }
+
+        // exactly one finish, and the page was not reloaded
+        assert.equal(requests.filter(r => r === 'POST /auth/v1/users/webauthn_finish').length, 1);
+        assert.equal(await page.evaluate(() => window.__notReloaded), true);
     }
 });

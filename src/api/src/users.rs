@@ -48,6 +48,7 @@ use rauthy_data::entity::users_values::UserValues;
 use rauthy_data::entity::webauthn;
 use rauthy_data::entity::webauthn::auth_data::WebauthnAdditionalData;
 use rauthy_data::entity::webauthn::auth_req::WebauthnServiceReq;
+use rauthy_data::entity::webauthn::passkey;
 use rauthy_data::entity::webauthn::passkey::PasskeyEntity;
 use rauthy_data::entity::webids::WebId;
 use rauthy_data::events::event::Event;
@@ -1948,6 +1949,8 @@ pub async fn post_webauthn_auth_start_login(
         (status = 200, description = "Ok", body = WebauthnAdditionalData),
         (status = 401, description = "Unauthorized", body = ErrorResponse),
         (status = 403, description = "Forbidden", body = ErrorResponse),
+        (status = 404, description = "Unknown Credential in a discoverable login", body = ErrorResponse),
+        (status = 503, description = "ServiceUnavailable", body = ErrorResponse),
     ),
 )]
 #[post("/users/webauthn_finish")]
@@ -1973,7 +1976,17 @@ pub async fn post_webauthn_auth_finish_login(
             // It's important to forward the 406 as-is. The UI is matching on that status to show
             // the correctly translated error message. This only happens when the passkey does not
             // meet attestation requirements.
-            if err.error == ErrorResponseType::NotAccepted {
+            //
+            // The same goes for the 404 of an unknown credential in a discoverable login: the UI
+            // explains it and offers the recovery instead of reloading the page, which it does
+            // on a 401. It says nothing about any account, only about the credential the browser
+            // just offered. A database error (503) must not look like an unknown credential.
+            let is_unknown_cred = err.error == ErrorResponseType::NotFound
+                && err.message == passkey::UNKNOWN_CREDENTIAL;
+            if err.error == ErrorResponseType::NotAccepted
+                || err.error == ErrorResponseType::ServiceUnavailable
+                || is_unknown_cred
+            {
                 err
             } else {
                 ErrorResponse::new(
@@ -2131,7 +2144,6 @@ pub async fn delete_webauthn(
             ));
         }
 
-        warn!("Passkey delete for user {} for key {}", id, name);
         None
     } else {
         if principal.is_session_group_admin() {
@@ -2143,11 +2155,38 @@ pub async fn delete_webauthn(
 
         let target = User::find(id.clone()).await?;
         principal.validate_group_admin_can_manage(target.roles_iter(), target.groups_iter())?;
-        warn!("Passkey delete from admin for user {} for key {}", id, name);
         Some(target)
     };
 
-    PasskeyEntity::delete(id, name.clone()).await?;
+    let initiator = if notify_user.is_none() {
+        "self".to_string()
+    } else if let Some(key) = &principal.api_key {
+        format!("api_key:{}", key.name)
+    } else {
+        "admin".to_string()
+    };
+    // only for the log, a missing passkey is not an error here
+    let cred = PasskeyEntity::find(&id, &name)
+        .await
+        .ok()
+        .and_then(|pk| webauthn::cred_log_id(&pk.credential_id));
+
+    PasskeyEntity::delete(id.clone(), name.clone()).await?;
+
+    warn!(
+        user_id = id,
+        cred = cred.as_deref(),
+        initiator,
+        "webauthn.delete"
+    );
+    let text = format!(
+        "user: {id}, by: {initiator}, cred: {}",
+        cred.as_deref().unwrap_or("-")
+    );
+    let ip = real_ip_from_req(&req).ok().map(|ip| ip.to_string());
+    if let Err(err) = Event::passkey_removed(text, ip).send().await {
+        error!(?err, "Sending the PasskeyRemoved event");
+    }
 
     if let Some(user) = notify_user {
         // A reset by an admin must not leave a way back in for whoever holds the old codes,
@@ -2213,7 +2252,7 @@ pub async fn post_webauthn_reg_start(
         let id = id.into_inner();
         principal.is_user(&id)?;
 
-        webauthn::register::reg_start(id, payload)
+        webauthn::register::reg_start(id, payload, webauthn::register::RegContext::Session)
             .await
             .map(|ccr| HttpResponse::Ok().json(ccr))
     }

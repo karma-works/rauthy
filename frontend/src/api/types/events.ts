@@ -21,7 +21,10 @@ export type EventType =
     | 'UserLoginRevoke'
     | 'LoginNewLocation'
     | 'SuspiciousApiScan'
-    | 'TokenIssued';
+    | 'TokenIssued'
+    | 'PasskeyAdded'
+    | 'PasskeyRemoved'
+    | 'PasskeyAuthFailed';
 
 export interface EventsRequest {
     /// Unix timestamp in seconds

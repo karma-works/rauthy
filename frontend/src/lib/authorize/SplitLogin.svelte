@@ -19,6 +19,7 @@
         recoveryEnabled = false,
         errExisting,
         errNew,
+        errRecoveryLink = false,
         onExisting,
         onNew,
     }: {
@@ -33,6 +34,8 @@
         recoveryEnabled?: boolean;
         errExisting: string;
         errNew: string;
+        /** shows the recovery link with the error, for a passkey the backend does not know */
+        errRecoveryLink?: boolean;
         onExisting: () => void;
         onNew: () => void;
     } = $props();
@@ -83,7 +86,12 @@
                 {t.splitLogin.existingButton}
             </button>
             {#if errExisting}
-                <p class="err" role="alert">{errExisting}</p>
+                <p class="err" role="alert">
+                    {errExisting}
+                    {#if errRecoveryLink && recoveryEnabled}
+                        <a href="/auth/v1/users/recover">{t.splitLogin.lostLink}</a>
+                    {/if}
+                </p>
             {/if}
         </section>
 
@@ -125,7 +133,12 @@
                 </button>
             </form>
             {#if errNew}
-                <p class="err" role="alert">{errNew}</p>
+                <p class="err" role="alert">
+                    {errNew}
+                    {#if errRecoveryLink && recoveryEnabled}
+                        <a href="/auth/v1/users/recover">{t.splitLogin.lostLink}</a>
+                    {/if}
+                </p>
             {/if}
         </section>
     </div>

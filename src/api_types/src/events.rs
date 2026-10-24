@@ -40,6 +40,9 @@ pub enum EventType {
     RecoveryCodeUsed,
     RecoveryCodeFailed,
     RecoveryCodesRegenerated,
+    PasskeyAdded,
+    PasskeyRemoved,
+    PasskeyAuthFailed,
 }
 
 #[derive(Deserialize, Validate, ToSchema, IntoParams)]

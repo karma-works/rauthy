@@ -199,6 +199,10 @@ export const I18nNl: I18n = {
         orLoginWith: 'of inloggen met',
         passkeyNotDiscovered: `Passkeys die niet als Resident Key zijn toegevoegd, kunnen op deze
             manier niet gevonden worden. Voer in plaats daarvan je e-mailadres in.`,
+        passkeyUnknown:
+            'This passkey is not (or no longer) registered with us. Use "Lost your passkey?" with a recovery code or contact your administrator.',
+        passkeyUnknownNoRecovery:
+            'This passkey is not (or no longer) registered with us. Please contact your administrator.',
         password: 'Wachtwoord',
         passwordExpired: 'Wachtwoord is verlopen. Er is een e-mail met een resetlink verstuurd.',
         passwordForgotten: 'Wachtwoord vergeten?',

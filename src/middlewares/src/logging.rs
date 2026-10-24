@@ -60,23 +60,32 @@ where
         Box::pin(async move {
             let log = build_log(&req)?;
             let resp = service.call(req).await;
-            emit_log(log, time_taken);
+            if let Some(log) = log {
+                let status = match &resp {
+                    Ok(r) => r.status(),
+                    Err(err) => err.as_response_error().status_code(),
+                };
+                emit_log(log, status.as_u16(), time_taken);
+            }
             resp
         })
     }
 }
 
 #[inline(always)]
-fn emit_log(log: Option<String>, inst: Instant) {
-    if let Some(log) = log {
-        // Technically, this downcast is unsafe. In reality,
-        // it will be impossible to ever exceed u64::MAX.
-        let elapsed = inst.elapsed().as_micros() as u64;
-        if elapsed > 1000 {
-            info!("{} {}ms", log, elapsed / 1000);
-        } else {
-            info!("{} {}μs", log, elapsed);
-        }
+fn emit_log(log: String, status: u16, inst: Instant) {
+    // Technically, this downcast is unsafe. In reality,
+    // it will be impossible to ever exceed u64::MAX.
+    let elapsed = inst.elapsed().as_micros() as u64;
+    info!("{}", format_access_log(&log, status, elapsed));
+}
+
+/// `<request> <status> <duration>`, e.g. `... POST /auth/v1/users/webauthn_finish ... 404 12ms`
+fn format_access_log(log: &str, status: u16, elapsed_micros: u64) -> String {
+    if elapsed_micros > 1000 {
+        format!("{log} {status} {}ms", elapsed_micros / 1000)
+    } else {
+        format!("{log} {status} {elapsed_micros}μs")
     }
 }
 
@@ -134,4 +143,15 @@ fn build_log(req: &ServiceRequest) -> Result<Option<String>, ErrorResponse> {
     };
 
     Ok(Some(log))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_access_log;
+
+    #[test]
+    fn test_access_log_has_status_and_duration() {
+        assert_eq!(format_access_log("GET /x", 404, 12_345), "GET /x 404 12ms");
+        assert_eq!(format_access_log("GET /x", 200, 999), "GET /x 200 999μs");
+    }
 }

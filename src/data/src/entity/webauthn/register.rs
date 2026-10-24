@@ -4,7 +4,8 @@ use crate::entity::users::User;
 use crate::entity::webauthn::aaguid::attested_aaguid;
 use crate::entity::webauthn::ceremony::{RegistrationState, requires_uv};
 use crate::entity::webauthn::passkey::PasskeyEntity;
-use crate::entity::webauthn::{force_mds_attestation, verify_attestation};
+use crate::entity::webauthn::{cred_log_id, force_mds_attestation, verify_attestation};
+use crate::events::event::Event;
 use crate::fido_mds::authenticator::MdsAuthenticator;
 use crate::rauthy_config::RauthyConfig;
 use rauthy_api_types::users::{
@@ -31,6 +32,7 @@ pub struct WebauthnReg {
 pub async fn reg_start(
     user_id: String,
     payload: WebauthnRegStartRequest,
+    ctx: RegContext,
 ) -> Result<CreationChallengeResponse, ErrorResponse> {
     let user = User::find(user_id).await?;
     let passkey_user_id = if let Some(id) = &user.webauthn_user_id {
@@ -54,6 +56,14 @@ pub async fn reg_start(
     // New-user magic links may remove an initialized password at finish.
     let require_uv =
         requires_uv(user.account_type(), cfg.force_uv) || payload.magic_link_id.is_some();
+
+    info!(
+        user_id = user.id,
+        path = ctx.as_str(),
+        rk_requested = allow_rk,
+        uv_required = require_uv,
+        "webauthn.reg.start"
+    );
 
     let attestation_ca_list = if cfg.optimistic_attestation || force_mds_attestation() {
         MdsAuthenticator::get_ca_list().await?
@@ -119,6 +129,22 @@ pub enum RegContext {
     Recovery,
 }
 
+impl RegContext {
+    /// The `path` in the `webauthn.reg.*` logs. Admins cannot register a passkey for a user.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Session => "account",
+            Self::NewUser => "setup",
+            Self::Recovery => "recovery",
+        }
+    }
+}
+
+/// Writes the `webauthn.reg.finish` log line of a failed registration.
+fn log_reg_failed(user_id: &str, ctx: RegContext, result: &'static str) {
+    warn!(user_id, path = ctx.as_str(), result, "webauthn.reg.finish");
+}
+
 pub async fn reg_finish(
     id: String,
     payload: WebauthnRegFinishRequest,
@@ -135,6 +161,7 @@ pub async fn reg_finish(
         .await?
     {
         None => {
+            log_reg_failed(&user.id, ctx, "state_not_found");
             return Err(ErrorResponse::new(
                 ErrorResponseType::BadRequest,
                 "Webauthn Registration Request not found",
@@ -175,10 +202,7 @@ pub async fn reg_finish(
             let cred = Credential::from(pk.clone());
 
             if (requires_uv(user.account_type(), cfg.force_uv) || force_uv) && !cred.user_verified {
-                warn!(
-                    user.id,
-                    "Webauthn Registration Ceremony without User Verification",
-                );
+                log_reg_failed(&user.id, ctx, "uv_missing");
                 return Err(ErrorResponse::new(
                     ErrorResponseType::Forbidden,
                     "User Presence only is not allowed - Verification is needed",
@@ -217,6 +241,7 @@ pub async fn reg_finish(
             };
 
             if aaguid.is_none() && force_mds_attestation() {
+                log_reg_failed(&user.id, ctx, "attestation");
                 // Do NOT update this error message. If you need to, also update the check
                 // in the acc dashboard -> frontend/src/lib/account/AccMFA.svelte
                 // It grabs the `Missing attestation` from it.
@@ -269,7 +294,10 @@ pub async fn reg_finish(
                 }
             };
 
-            PasskeyEntity::create(
+            let cred_log = cred_log_id(cred.cred_id.as_ref());
+            let aaguid_log = aaguid.as_ref().map(hex::encode);
+            let kind_log = kind.as_ref().map(|k| k.as_str());
+            if let Err(err) = PasskeyEntity::create(
                 user_id.clone(),
                 create_user,
                 reg_data.passkey_user_id,
@@ -280,9 +308,30 @@ pub async fn reg_finish(
                 aaguid.map(|a| a.to_vec()),
                 kind,
             )
-            .await?;
+            .await
+            {
+                log_reg_failed(&user_id, ctx, "db");
+                return Err(err);
+            }
 
-            info!(user_id, "New PasskeyEntity saved successfully");
+            info!(
+                user_id,
+                path = ctx.as_str(),
+                result = "ok",
+                cred = cred_log.as_deref(),
+                rk = ?is_rk,
+                kind = kind_log,
+                aaguid = aaguid_log.as_deref(),
+                "webauthn.reg.finish"
+            );
+            let text = format!(
+                "user: {user_id}, path: {}, cred: {}",
+                ctx.as_str(),
+                cred_log.as_deref().unwrap_or("-"),
+            );
+            if let Err(err) = Event::passkey_added(text, None).send().await {
+                error!(?err, "Sending the PasskeyAdded event");
+            }
 
             if let Some(user) = notify_user {
                 send_email_passkey_added(&user, &passkey_name).await;
@@ -290,6 +339,12 @@ pub async fn reg_finish(
         }
         Err(err) => {
             error!(?err, "Webauthn Reg Finish");
+            let result = if is_attestation_error(&err) {
+                "attestation"
+            } else {
+                "verification"
+            };
+            log_reg_failed(&user.id, ctx, result);
             return Err(ErrorResponse::new(
                 ErrorResponseType::BadRequest,
                 format!("{err}"),
