@@ -199,6 +199,10 @@ export const I18nRu: I18n = {
         orLoginWith: 'или войти через',
         passkeyNotDiscovered: `Passkey, добавленные не как Resident Key, нельзя найти этим
             способом. Вместо этого введите адрес эл. почты.`,
+        passkeyUnknown:
+            'This passkey is not (or no longer) registered with us. Use "Lost your passkey?" with a recovery code or contact your administrator.',
+        passkeyUnknownNoRecovery:
+            'This passkey is not (or no longer) registered with us. Please contact your administrator.',
         password: 'Пароль',
         passwordExpired:
             'Срок действия пароля истёк. Письмо со ссылкой для сброса было отправлено.',

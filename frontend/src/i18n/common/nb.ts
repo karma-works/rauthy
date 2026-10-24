@@ -197,6 +197,10 @@ export const I18nNb: I18n = {
         orLoginWith: 'eller logg inn med',
         passkeyNotDiscovered: `Passkeys som ikke er lagt til som Resident Key, kan ikke finnes på
             denne måten. Skriv inn e-postadressen din i stedet.`,
+        passkeyUnknown:
+            'This passkey is not (or no longer) registered with us. Use "Lost your passkey?" with a recovery code or contact your administrator.',
+        passkeyUnknownNoRecovery:
+            'This passkey is not (or no longer) registered with us. Please contact your administrator.',
         password: 'Passord',
         passwordExpired: 'Password has expired. An E-Mail with a reset link was sent.',
         passwordForgotten: 'Glemt passord?',

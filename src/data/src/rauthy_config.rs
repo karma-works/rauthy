@@ -228,6 +228,12 @@ impl RauthyConfig {
         if slf.vars.dev.dev_mode {
             warn!("You started with DEV Mode enabled. Do NOT use this in production!");
         }
+        if slf.vars.webauthn.log_cred_hmac_key.is_none() {
+            warn!(
+                "`webauthn.log_cred_hmac_key` is not set - passkey logs and events will not \
+                contain a credential reference"
+            );
+        }
     }
 
     pub fn init_static(self) {
@@ -1282,6 +1288,7 @@ Your account has not been compromised and no data was leaked."#.into()),
                 passkey_accounts_no_password: false,
                 notify_passkey_added: false,
                 recovery_codes: false,
+                log_cred_hmac_key: None,
             },
             atproto: VarsAtproto { enable: false },
             shared_devices: VarsSharedDevices {
@@ -4042,6 +4049,15 @@ impl Vars {
         ) {
             self.webauthn.recovery_codes = v;
         }
+        if let Some(v) = t_str(
+            &mut table,
+            "webauthn",
+            "log_cred_hmac_key",
+            "WEBAUTHN_LOG_CRED_HMAC_KEY",
+        ) && !v.is_empty()
+        {
+            self.webauthn.log_cred_hmac_key = Some(ConfigSecret(v.into_bytes()));
+        }
 
         check_table_empty(table, "webauthn");
     }
@@ -4880,6 +4896,18 @@ pub struct VarsWebauthn {
     /// If `true`, passkey accounts can create one-time recovery codes, see
     /// `entity::recovery_codes`.
     pub recovery_codes: bool,
+    /// Secret key for the pseudonym of a credential ID in logs, see
+    /// `entity::webauthn::cred_log_id`. Without a key, logs contain no credential reference.
+    pub log_cred_hmac_key: Option<ConfigSecret>,
+}
+
+/// A secret config value, which never shows up in a `Debug` output.
+pub struct ConfigSecret(pub Vec<u8>);
+
+impl std::fmt::Debug for ConfigSecret {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str("<hidden>")
+    }
 }
 
 impl VarsWebauthn {

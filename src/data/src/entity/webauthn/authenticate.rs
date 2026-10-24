@@ -8,7 +8,10 @@ use crate::entity::webauthn::auth_req::{WebauthnLoginReq, WebauthnServiceReq};
 use crate::entity::webauthn::authenticate_rk::auth_finish_discover;
 use crate::entity::webauthn::ceremony::{AuthenticationState, requires_uv};
 use crate::entity::webauthn::passkey::PasskeyEntity;
-use crate::entity::webauthn::{force_mds_attestation, verify_attestation};
+use crate::entity::webauthn::{
+    AuthFailReason, AuthPath, force_mds_attestation, log_auth_failed, log_auth_ok,
+    verify_attestation,
+};
 use crate::rauthy_config::RauthyConfig;
 use actix_web::HttpRequest;
 use chrono::Utc;
@@ -17,7 +20,7 @@ use rauthy_common::utils::get_rand;
 use rauthy_error::{ErrorResponse, ErrorResponseType};
 use serde::{Deserialize, Serialize};
 use std::cmp::min;
-use tracing::{error, info, warn};
+use tracing::{error, warn};
 use utoipa::ToSchema;
 use webauthn_rs::prelude::Passkey;
 
@@ -138,7 +141,19 @@ pub async fn auth_finish(
     session: Option<Session>,
     payload: WebauthnAuthFinishRequest,
 ) -> Result<WebauthnAdditionalData, ErrorResponse> {
-    let auth_data = WebauthnData::find_remove(payload.code).await?;
+    let cred_id = payload.data.get_credential_id().to_vec();
+    let auth_data = match WebauthnData::find_remove(payload.code).await {
+        Ok(d) => d,
+        Err(err) => {
+            let reason = if err.error == ErrorResponseType::NotFound {
+                AuthFailReason::StateNotFound
+            } else {
+                AuthFailReason::Db
+            };
+            log_auth_failed(req, None, reason, Some(&cred_id), None).await;
+            return Err(err);
+        }
+    };
 
     let (user_id, is_login) = match &auth_data.data {
         WebauthnAdditionalData::Login(d) => (&d.user_id, true),
@@ -157,6 +172,13 @@ pub async fn auth_finish(
         RauthyConfig::get().vars.webauthn.force_uv,
     );
 
+    let auth_path = if is_login {
+        AuthPath::EmailFirst
+    } else {
+        AuthPath::Service
+    };
+    let path = Some(auth_path);
+    let log_uid = user.id.clone();
     let pks = PasskeyEntity::find_for_user(&user.id).await?;
     let auth_state = serde_json::from_str::<AuthenticationState>(&auth_data.auth_state_json)?;
 
@@ -169,20 +191,47 @@ pub async fn auth_finish(
                 .into_iter()
                 .find(|e| e.credential_id.as_slice() == auth_result.cred_id().as_ref())
             else {
+                log_auth_failed(
+                    req,
+                    path,
+                    AuthFailReason::UnknownCredential,
+                    Some(&cred_id),
+                    Some(&log_uid),
+                )
+                .await;
                 return Err(ErrorResponse::new(
                     ErrorResponseType::BadRequest,
                     "Webauthn CredID not found in authentication result",
                 ));
             };
 
-            verify_attestation(
+            if let Err(err) = verify_attestation(
                 pk_entity.aaguid.as_deref(),
                 &pk_entity.user_id,
                 &pk_entity.name,
             )
-            .await?;
+            .await
+            {
+                log_auth_failed(
+                    req,
+                    path,
+                    AuthFailReason::Attestation,
+                    Some(&cred_id),
+                    Some(&log_uid),
+                )
+                .await;
+                return Err(err);
+            }
 
             if force_uv && !auth_result.user_verified() {
+                log_auth_failed(
+                    req,
+                    path,
+                    AuthFailReason::UvMissing,
+                    Some(&cred_id),
+                    Some(&log_uid),
+                )
+                .await;
                 warn!(
                     user.id,
                     "Webauthn Authentication Ceremony without User Verification",
@@ -202,6 +251,14 @@ pub async fn auth_finish(
                     //  user account. We should probably blacklist the source IP after enough
                     //  testing. We must be sure that this can never happen by accident.
 
+                    log_auth_failed(
+                        req,
+                        path,
+                        AuthFailReason::SessionMismatch,
+                        Some(&cred_id),
+                        Some(&log_uid),
+                    )
+                    .await;
                     let WebauthnAdditionalData::Login(data) = auth_data.data else {
                         unreachable!()
                     };
@@ -234,7 +291,7 @@ pub async fn auth_finish(
                 }
             }
 
-            info!(user.id = uid, "Webauthn Authentication successful");
+            log_auth_ok(auth_path, &cred_id, &uid);
 
             if let WebauthnAdditionalData::Login(data) = auth_data.data {
                 data.delete().await?;
@@ -266,6 +323,14 @@ pub async fn auth_finish(
         }
         Err(err) => {
             error!(?err, "Webauthn Auth Finish");
+            log_auth_failed(
+                req,
+                path,
+                AuthFailReason::Verification,
+                Some(&cred_id),
+                Some(&log_uid),
+            )
+            .await;
             Err(ErrorResponse::new(
                 ErrorResponseType::Unauthorized,
                 err.to_string(),

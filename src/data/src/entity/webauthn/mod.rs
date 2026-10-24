@@ -1,8 +1,11 @@
+use crate::events::event::Event;
 use crate::fido_mds::masks::{AttachmentHintMask, KeyProtectionMask, MdsCertLevel};
 use crate::fido_mds::mds_entry::MdsEntrySimple;
 use crate::rauthy_config::RauthyConfig;
+use actix_web::HttpRequest;
+use rauthy_common::utils::real_ip_from_req;
 use rauthy_error::{ErrorResponse, ErrorResponseType};
-use tracing::debug;
+use tracing::{debug, error, info, warn};
 
 pub mod aaguid;
 pub mod auth_data;
@@ -13,6 +16,132 @@ mod ceremony;
 pub mod passkey;
 pub mod register;
 pub mod rk_token;
+
+/// The pseudonym of a credential ID for logs and events: HMAC-SHA256 with the secret
+/// `webauthn.log_cred_hmac_key`, hex, cut to 16 chars. It lets operators follow one passkey
+/// through the logs without the ID itself. `None` without a key, so the field is left out.
+pub fn cred_log_id(cred_id: &[u8]) -> Option<String> {
+    RauthyConfig::get()
+        .vars
+        .webauthn
+        .log_cred_hmac_key
+        .as_ref()
+        .map(|key| cred_hmac(&key.0, cred_id))
+}
+
+/// How the browser found the passkey in a login, for `webauthn.auth.finish`
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuthPath {
+    /// No user known upfront, the browser offers its discoverable credentials
+    Discoverable,
+    /// The user is known from the E-Mail, the browser gets the allowed credentials
+    EmailFirst,
+    /// A logged-in user confirms an action (MFA mod token, password change, test, ...)
+    Service,
+}
+
+impl AuthPath {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Discoverable => "discoverable",
+            Self::EmailFirst => "email_first",
+            Self::Service => "service",
+        }
+    }
+}
+
+/// The `result` of a failed `webauthn.auth.finish`
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuthFailReason {
+    /// The credential is not (or no longer) registered
+    UnknownCredential,
+    /// The User Handle does not belong to the credential
+    UserHandleMismatch,
+    /// The session already belongs to another user
+    SessionMismatch,
+    /// The ceremony state is gone: expired, or the `code` was used already
+    StateNotFound,
+    /// User Verification required but missing
+    UvMissing,
+    /// The authenticator does not meet the attestation requirements (anymore)
+    Attestation,
+    /// The signature or another check of `webauthn-rs` failed
+    Verification,
+    /// Database or cache error
+    Db,
+}
+
+impl AuthFailReason {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::UnknownCredential => "unknown_credential",
+            Self::UserHandleMismatch => "user_handle_mismatch",
+            Self::SessionMismatch => "session_mismatch",
+            Self::StateNotFound => "state_not_found",
+            Self::UvMissing => "uv_missing",
+            Self::Attestation => "attestation",
+            Self::Verification => "verification",
+            Self::Db => "db",
+        }
+    }
+
+    /// Only failures that say something about a passkey or an attack become a
+    /// `PasskeyAuthFailed` event. Expired ceremonies and database errors stay in the log.
+    fn is_event(&self) -> bool {
+        !matches!(self, Self::StateNotFound | Self::Db)
+    }
+}
+
+/// Writes the `webauthn.auth.finish` log line of a successful passkey login.
+pub(crate) fn log_auth_ok(path: AuthPath, cred_id: &[u8], user_id: &str) {
+    let cred = cred_log_id(cred_id);
+    info!(
+        path = path.as_str(),
+        result = "ok",
+        cred = cred.as_deref(),
+        user_id,
+        "webauthn.auth.finish"
+    );
+}
+
+/// Writes the `webauthn.auth.finish` log line of a failed passkey login and, depending on the
+/// reason, sends a `PasskeyAuthFailed` event. Neither contains an E-Mail or a passkey name.
+pub(crate) async fn log_auth_failed(
+    req: &HttpRequest,
+    path: Option<AuthPath>,
+    reason: AuthFailReason,
+    cred_id: Option<&[u8]>,
+    user_id: Option<&str>,
+) {
+    let cred = cred_id.and_then(cred_log_id);
+    let path = path.map(|p| p.as_str());
+    warn!(
+        path,
+        result = reason.as_str(),
+        cred = cred.as_deref(),
+        user_id,
+        "webauthn.auth.finish"
+    );
+
+    if reason.is_event() {
+        let text = format!(
+            "{} - path: {}, user: {}, cred: {}",
+            reason.as_str(),
+            path.unwrap_or("-"),
+            user_id.unwrap_or("-"),
+            cred.as_deref().unwrap_or("-"),
+        );
+        let ip = real_ip_from_req(req).ok().map(|ip| ip.to_string());
+        if let Err(err) = Event::passkey_auth_failed(text, ip).send().await {
+            error!(?err, "Sending the PasskeyAuthFailed event");
+        }
+    }
+}
+
+fn cred_hmac(key: &[u8], cred_id: &[u8]) -> String {
+    let mac = hmac_sha256::HMAC::mac(cred_id, key);
+    hex::encode(&mac[..8])
+}
 
 #[inline]
 #[must_use]
@@ -116,6 +245,34 @@ mod tests {
     use crate::fido_mds::masks::{
         AttachmentHint, AttachmentHintMask, AttestationTypeMask, KeyProtection, KeyProtectionMask,
     };
+
+    #[test]
+    fn cred_hmac_is_keyed_and_short() {
+        let id = b"credential-id";
+        let a = cred_hmac(b"key-1", id);
+        assert_eq!(a.len(), 16);
+        assert!(a.chars().all(|c| c.is_ascii_hexdigit()));
+        // stable for the same key, so one passkey can be followed through the logs
+        assert_eq!(a, cred_hmac(b"key-1", id));
+        // a different key gives a different pseudonym
+        assert_ne!(a, cred_hmac(b"key-2", id));
+        assert_ne!(a, cred_hmac(b"key-1", b"other-credential"));
+        // never the plain ID
+        assert!(!a.contains(&hex::encode(id)[..16]));
+        assert_eq!(
+            AuthFailReason::UnknownCredential.as_str(),
+            "unknown_credential"
+        );
+        assert!(AuthFailReason::UnknownCredential.is_event());
+        assert!(AuthFailReason::UserHandleMismatch.is_event());
+        assert!(!AuthFailReason::StateNotFound.is_event());
+        assert!(!AuthFailReason::Db.is_event());
+        // RFC 4231 test case 2, cut to 8 bytes
+        assert_eq!(
+            cred_hmac(b"Jefe", b"what do ya want for nothing?"),
+            "5bdcc146bf60754e"
+        );
+    }
 
     fn mds_entry(
         key_protection: KeyProtectionMask,

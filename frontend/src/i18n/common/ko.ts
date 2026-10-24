@@ -190,6 +190,10 @@ export const I18nKo: I18n = {
         orLoginWith: '또는 다음으로 로그인',
         passkeyNotDiscovered:
             'Resident Key로 추가되지 않은 Passkey는 이 방법으로 찾을 수 없습니다. 대신 이메일을 입력하세요.',
+        passkeyUnknown:
+            'This passkey is not (or no longer) registered with us. Use "Lost your passkey?" with a recovery code or contact your administrator.',
+        passkeyUnknownNoRecovery:
+            'This passkey is not (or no longer) registered with us. Please contact your administrator.',
         password: '비밀번호',
         passwordExpired: 'Password has expired. An E-Mail with a reset link was sent.',
         passwordForgotten: '비밀번호를 잊으셨나요?',

@@ -3195,6 +3195,18 @@ rp_origin = 'http://localhost:8080'
 # overwritten by: WEBAUTHN_RECOVERY_CODES
 #recovery_codes = false
 
+# A secret key for the pseudonym of a passkey in the logs and events:
+# HMAC-SHA256 of the credential ID, hex, cut to 16 characters. It
+# lets you follow one passkey through the `webauthn.*` log lines and
+# the `Passkey*` events without logging the credential ID itself.
+# Use a long random value, e.g. `openssl rand -hex 32`, and keep it
+# stable, or the pseudonyms change. Without a key, logs and events
+# contain no credential reference, and Rauthy warns once at startup.
+#
+# default: not set
+# overwritten by: WEBAUTHN_LOG_CRED_HMAC_KEY
+#log_cred_hmac_key = ''
+
 # When you want to migrate an existing deployment over to enforced
 # attestation, you usually have a chicken-and-egg problem: You
 # have users that already use Passkeys. Device attestation only

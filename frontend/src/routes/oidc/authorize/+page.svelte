@@ -116,6 +116,8 @@
     let hasLoginAlternatives = $derived(isPasskeyDiscoverable || providers.length > 0);
     // the error of a failed Passkey button login, to show a hint with it
     let passkeyDiscoverErr = $state('');
+    // the error for a passkey the backend does not know (anymore), shown with the recovery link
+    let passkeyUnknownErr = $state('');
 
     // `access.login_layout`: `split` shows two cards, for a known and for a new device
     let loginLayout = $state('default');
@@ -599,7 +601,19 @@
         mfaPurpose = undefined;
     }
 
-    function onMfaError(error: string) {
+    function onMfaError(error: string, unknownCredential?: boolean) {
+        if (unknownCredential) {
+            // Only about the passkey the browser offered, never about an account.
+            err = recoveryEnabled
+                ? t.authorize.passkeyUnknown
+                : t.authorize.passkeyUnknownNoRecovery;
+            passkeyUnknownErr = err;
+            passkeyDiscoverErr = '';
+            mfaPurpose = undefined;
+            mfaKind = undefined;
+            return;
+        }
+
         let isAttErr =
             error.includes('certification level') ||
             error.includes('key protection') ||
@@ -753,6 +767,7 @@
                 {recoveryEnabled}
                 errExisting={splitCard === 'existing' ? splitErr : ''}
                 errNew={splitCard === 'new' ? splitErr : ''}
+                errRecoveryLink={!!err && err === passkeyUnknownErr}
                 onExisting={() => onSplitLogin('existing')}
                 onNew={() => onSplitLogin('new')}
             />
@@ -920,6 +935,11 @@
                                 {t.authorize.passkeyNotDiscovered}
                             </div>
                         {/if}
+                        {#if err === passkeyUnknownErr && recoveryEnabled}
+                            <a class="errLink" href="/auth/v1/users/recover">
+                                {t.splitLogin.lostLink}
+                            </a>
+                        {/if}
                     {/if}
 
                     {#if emailSuccess}
@@ -1043,6 +1063,11 @@
         max-width: 18rem;
         text-wrap: wrap;
         color: hsl(var(--error));
+    }
+
+    .errLink {
+        display: block;
+        margin: 0 0 0.5rem;
     }
 
     .flex-col {

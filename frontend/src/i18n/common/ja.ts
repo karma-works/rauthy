@@ -199,6 +199,10 @@ export const I18nJa: I18n = {
         validEmail: '正しいメールアドレスを入力してください',
         passkeyNotDiscovered:
             'レジデントキーとして追加されていないパスキーはこの方法では見つけられません。入力 代わりにあなたのメールを送ってください。',
+        passkeyUnknown:
+            'This passkey is not (or no longer) registered with us. Use "Lost your passkey?" with a recovery code or contact your administrator.',
+        passkeyUnknownNoRecovery:
+            'This passkey is not (or no longer) registered with us. Please contact your administrator.',
     },
     device: {
         accept: '許可する',
