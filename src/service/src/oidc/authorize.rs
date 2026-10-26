@@ -3,7 +3,7 @@ use actix_web::HttpRequest;
 use actix_web::http::header;
 use actix_web::http::header::{HeaderName, HeaderValue};
 use chrono::Utc;
-use rauthy_api_types::oidc::{LoginRefreshRequest, LoginRequest};
+use rauthy_api_types::oidc::{GrantType, LoginRefreshRequest, LoginRequest};
 use rauthy_api_types::shared_devices::PinLoginRequest;
 use rauthy_common::constants::COOKIE_MFA;
 use rauthy_common::sha256;
@@ -199,6 +199,9 @@ pub async fn post_authorize(
 
     // client validations
     let client = Client::find_maybe_ephemeral(req_data.client_id).await?;
+    client.validate_enabled()?;
+    client.validate_redirect_uri(&req_data.redirect_uri)?;
+    client.validate_flow(GrantType::AuthorizationCode)?;
     let header_origin = client.get_validated_origin_header(req)?;
 
     // Webauthn overrides otp.
@@ -317,6 +320,7 @@ pub async fn post_authorize_pin(
     user.check_expired()?;
 
     let client = Client::find(req_data.client_id).await?;
+    client.validate_flow(GrantType::AuthorizationCode)?;
     let header_origin = client.get_validated_origin_header(req)?;
 
     // `auth_time` of the tokens is the time of this login.
@@ -447,6 +451,7 @@ pub(crate) async fn finish_authorize(
     let code = AuthCode::new(
         user.id.clone(),
         client.id,
+        client.created_micros,
         data.redirect_uri.clone(),
         Some(session.id.clone()),
         data.code_challenge,

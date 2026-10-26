@@ -495,15 +495,13 @@ OFFSET $3"#;
 
     /// Inserts or updates a live session; expired sessions are rejected.
     pub async fn upsert(&self) -> Result<(), ErrorResponse> {
-        if self.exp < Utc::now().timestamp() {
+        let now = Utc::now().timestamp();
+        if self.exp <= now {
             return Err(ErrorResponse::new(
                 ErrorResponseType::Forbidden,
                 "Session has expired",
             ));
         }
-
-        let state_str = self.state.as_str();
-        let now = Utc::now().timestamp();
 
         let sql = r#"
 INSERT INTO
@@ -526,7 +524,7 @@ WHERE sessions.exp > $14"#;
                         &self.roles,
                         &self.groups,
                         self.is_mfa,
-                        state_str,
+                        self.state.as_str(),
                         self.exp,
                         self.last_seen,
                         &self.remote_ip,
@@ -547,7 +545,7 @@ WHERE sessions.exp > $14"#;
                     &self.roles,
                     &self.groups,
                     &self.is_mfa,
-                    &state_str,
+                    &self.state.as_str(),
                     &self.exp,
                     &self.last_seen,
                     &self.remote_ip,
@@ -637,7 +635,7 @@ WHERE sessions.exp > $14"#;
     #[inline]
     pub async fn set_authenticated(&mut self, user: &User) -> Result<(), ErrorResponse> {
         self.bind_user(user)?;
-        self.upsert().await?;
+        self.update_authenticated().await?;
         self.after_shared_device_login().await
     }
 
@@ -653,7 +651,7 @@ WHERE sessions.exp > $14"#;
         self.bind_user(user)?;
         self.mfa_method = MfaMethod::Pin;
         self.is_mfa = false;
-        self.upsert().await?;
+        self.update_authenticated().await?;
         self.after_shared_device_login().await
     }
 
@@ -684,7 +682,7 @@ WHERE sessions.exp > $14"#;
         self.bind_user(user)?;
         self.mfa_method = method;
         self.is_mfa = method.is_mfa();
-        self.upsert().await?;
+        self.update_authenticated().await?;
         self.after_shared_device_login().await
     }
 
@@ -696,7 +694,7 @@ WHERE sessions.exp > $14"#;
     fn bind_user(&mut self, user: &User) -> Result<(), ErrorResponse> {
         let now = Utc::now().timestamp();
         // An expired session must never be resurrected
-        if self.exp < now {
+        if self.exp <= now {
             return Err(ErrorResponse::new(
                 ErrorResponseType::Forbidden,
                 "Session has expired",
@@ -723,6 +721,73 @@ WHERE sessions.exp > $14"#;
         self.user_id = Some(user.id.clone());
         self.roles = Some(user.roles.clone());
         self.groups = user.groups.clone();
+        Ok(())
+    }
+
+    /// Persists the result of `bind_user` for an existing, live session.
+    ///
+    /// This MUST NOT use `self.upsert()`: during a race with a logout or session deletion, an
+    /// upsert could insert the session again. Only sessions in state `Init` or `Auth` that have
+    /// not expired are updated.
+    async fn update_authenticated(&self) -> Result<(), ErrorResponse> {
+        let sql = r#"
+UPDATE sessions
+SET last_seen = $1, state = $2, user_id = $3, roles = $4, groups = $5, is_mfa = $6,
+    mfa_method = $7, exp = $8
+WHERE id = $9 AND exp > $10 AND (state = $11 OR state = $12)"#;
+
+        let rows_affected = if is_hiqlite() {
+            DB::hql()
+                .execute(
+                    sql,
+                    params!(
+                        self.last_seen,
+                        self.state.as_str(),
+                        &self.user_id,
+                        &self.roles,
+                        &self.groups,
+                        self.is_mfa,
+                        self.mfa_method.as_str(),
+                        self.exp,
+                        &self.id,
+                        self.last_seen,
+                        SessionState::Init.as_str(),
+                        SessionState::Auth.as_str()
+                    ),
+                )
+                .await?
+        } else {
+            DB::pg_execute(
+                sql,
+                &[
+                    &self.last_seen,
+                    &self.state.as_str(),
+                    &self.user_id,
+                    &self.roles,
+                    &self.groups,
+                    &self.is_mfa,
+                    &self.mfa_method.as_str(),
+                    &self.exp,
+                    &self.id,
+                    &self.last_seen,
+                    &SessionState::Init.as_str(),
+                    &SessionState::Auth.as_str(),
+                ],
+            )
+            .await?
+        };
+
+        if rows_affected == 0 {
+            return Err(ErrorResponse::new(
+                ErrorResponseType::Forbidden,
+                "Session has expired, was logged-out, or removed",
+            ));
+        }
+
+        DB::hql()
+            .put(Cache::Session, self.id.clone(), self, CACHE_TTL_SESSION)
+            .await?;
+
         Ok(())
     }
 }
