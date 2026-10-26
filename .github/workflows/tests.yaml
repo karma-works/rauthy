@@ -30,7 +30,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - uses: ./.github/actions/builder-setup
+      - uses: ./.github/actions/builder-setup  # zizmor: ignore[self-repository] (local action, same commit)
       - name: Sync tooling tests
         run: python3 -m unittest discover -s arztagent -p 'test_*.py'
       - name: Build

@@ -104,7 +104,7 @@ jobs:
         with:
           name: sync
           path: ${{ runner.temp }}/sync
-      - uses: ./.github/actions/builder-setup
+      - uses: ./.github/actions/builder-setup  # zizmor: ignore[self-repository] (local action, same commit)
       - name: Merge again
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"

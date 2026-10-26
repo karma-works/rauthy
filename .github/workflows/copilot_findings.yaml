@@ -111,7 +111,7 @@ jobs:
         with:
           name: finding-${{ matrix.item.alert }}-autofix
           path: ${{ runner.temp }}/finding
-      - uses: ./.github/actions/builder-setup
+      - uses: ./.github/actions/builder-setup  # zizmor: ignore[self-repository] (local action, same commit)
       - name: Claude Code checks the finding and the fix
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
