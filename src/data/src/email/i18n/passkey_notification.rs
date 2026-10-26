@@ -23,6 +23,11 @@ impl I18nPasskeyNotification {
                 "The passkey '{name}' was added to your account.",
                 "If you did not add it yourself, contact your administrator immediately.",
             ),
+            Language::Es => (
+                "Nueva Passkey añadida a su cuenta",
+                "La Passkey '{name}' se ha añadido a su cuenta.",
+                "Si no la añadió usted, contacte inmediatamente con su administrador.",
+            ),
             Language::Fr => (
                 "Nouvelle clé d'accès ajoutée à votre compte",
                 "La clé d'accès '{name}' a été ajoutée à votre compte.",
@@ -48,6 +53,11 @@ impl I18nPasskeyNotification {
                 "Nieuwe passkey toegevoegd aan je account",
                 "De passkey '{name}' is aan je account toegevoegd.",
                 "Heb je deze niet zelf toegevoegd, neem dan direct contact op met je beheerder.",
+            ),
+            Language::Pt => (
+                "Nova Passkey adicionada à sua conta",
+                "A Passkey '{name}' foi adicionada à sua conta.",
+                "Se não foi o próprio a adicioná-la, contacte imediatamente o seu administrador.",
             ),
             Language::Ru => (
                 "В ваш аккаунт добавлен новый ключ доступа",
@@ -81,6 +91,11 @@ impl I18nPasskeyNotification {
                 "The passkey '{name}' was removed by an administrator.",
                 "If you did not expect this change, contact your administrator immediately.",
             ),
+            Language::Es => (
+                "Passkey eliminada de su cuenta",
+                "Un administrador ha eliminado la Passkey '{name}'.",
+                "Si no esperaba este cambio, contacte inmediatamente con su administrador.",
+            ),
             Language::Fr => (
                 "Clé d'accès supprimée de votre compte",
                 "La clé d'accès '{name}' a été supprimée par un administrateur.",
@@ -106,6 +121,11 @@ impl I18nPasskeyNotification {
                 "Passkey verwijderd uit je account",
                 "De passkey '{name}' is verwijderd door een beheerder.",
                 "Had je deze wijziging niet verwacht, neem dan direct contact op met je beheerder.",
+            ),
+            Language::Pt => (
+                "Passkey removida da sua conta",
+                "A Passkey '{name}' foi removida por um administrador.",
+                "Se não esperava esta alteração, contacte imediatamente o seu administrador.",
             ),
             Language::Ru => (
                 "Ключ доступа удалён из вашего аккаунта",

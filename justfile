@@ -220,12 +220,27 @@ version:
     #!/usr/bin/env bash
     echo "v$TAG"
 
-# only starts the backend in test mode with hiqlite database for easier test debugging
-test-backend: test-backend-stop delete-hiqlite
+# starts only the backend in test mode with hiqlite database for easier test debugging
+test-backend ty="hiqlite": test-backend-stop
     #!/usr/bin/env bash
     set -euxo pipefail
     clear
-    {{ test_env_vars }} cargo run --locked -- serve -c config-test.toml --test
+
+    if [[ {{ ty }} == "postgres" ]]; then
+      just postgres-stop
+      just postgres-rm
+      just postgres-start
+      #cargo build
+      #{{ test_env_vars }} {{ postgres }} HQL_CACHE_STORAGE_DISK=false ./target/debug/rauthy serve -c config-test.toml --test
+      {{ test_env_vars }} {{ postgres }} HQL_CACHE_STORAGE_DISK=false cargo run --locked -- serve -c config-test.toml --test
+    elif [[ {{ ty }} == "hiqlite" ]]; then
+      just delete-hiqlite
+      {{ test_env_vars }} cargo run --locked -- serve -c config-test.toml --test
+    else
+        echo 'Unknown test backend variant'
+        exit 1;
+    fi
+
 
 # starts the test backend with memory profiling - expects `heaptrack` to be available
 test-backend-heaptrack: test-backend-stop delete-hiqlite

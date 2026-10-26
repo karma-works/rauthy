@@ -54,7 +54,7 @@ Entity files contain the struct and DB/cache methods
 ### Notable deviations from the pattern
 
 - OIDC request-param validation lives in **`service/src/oidc/validation.rs`**
-  (`validate_auth_req_param`) — not under `api/`.
+  (`validate_auth_code_req_params`) — not under `api/`.
 - Grant-type logic for `/oidc/token` lives in `service/src/oidc/grant_types/<grant>.rs`, dispatched
   by `get_token_set` (`service/src/oidc/mod.rs`).
 - Client-level checks (enabled, force_mfa, redirect_uri, PKCE) are entity methods on
