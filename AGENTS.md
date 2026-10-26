@@ -5,11 +5,10 @@
 
 ## AI-assisted contributions and PRs
 
-AI-assisted and agent-authored contributions are welcome. They follow the same code, security,
-testing, and review standards as other contributions; there is no separate AI-specific local
-approval or Draft PR requirement. Contributors are responsible for understanding and validating
-their changes. Run `just pre-pr-checks` before submitting a PR (Postgres tests may be skipped when
-no custom queries were modified).
+AI-assisted and agent-authored contributions are welcome and follow the same code, security,
+testing, and review standards; there is no separate AI-specific approval or Draft PR requirement.
+Contributors must understand and validate their changes. Run `just pre-pr-checks` before a PR
+(Postgres tests may be skipped when no custom queries were modified).
 
 ## Repository layout
 
@@ -21,6 +20,7 @@ no custom queries were modified).
 - `rauthy-client/` — Rust client library + examples
 - `vendor/` — Compatibility-preserving security patches; provenance in `vendor/README.md`
 - `assets/build_tools/` — Checksum-pinned tool bootstrap and reviewed dependency locks
+- `arztagent/` — ArztAgent fork docs; upstream sync and security scans in `SECURITY-AGENT.md`
 - `CONTRIBUTING.md` provides important information for getting started
 
 ## Commands and crates

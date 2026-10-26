@@ -1,0 +1,7 @@
+# osv-scanner: advisories that do not apply to this fork. Each entry needs a reason and an end
+# date; after it the finding returns and must be checked again (arztagent/SECURITY-AGENT.md).
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0258"
+ignoreUntil = 2027-01-31
+reason = "h2 0.3.27 is the patched copy in vendor/h2 ([patch] in Cargo.toml), see vendor/README.md"

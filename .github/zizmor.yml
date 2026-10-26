@@ -1,0 +1,7 @@
+# zizmor (Security scan): accepted findings with reason.
+rules:
+  adhoc-packages:
+    ignore:
+      # Claude Code CLI, installed with an exact version for the agent jobs only.
+      - upstream_sync.yaml
+      - copilot_findings.yaml
