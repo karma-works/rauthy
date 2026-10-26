@@ -11,6 +11,7 @@ schnell übernehmen und bekannte Lücken früh sehen. Einrichtung (Rechte, Rules
 | `upstream_sync.yaml` | täglich 05:17 UTC, manuell | neue Commits von `sebadob/rauthy` mergen, PR öffnen |
 | `security_scan.yaml` | PR, `main`, montags | osv-scanner, gitleaks, zizmor, trivy → Code Scanning |
 | CodeQL (Default Setup) | PR, `main`, wöchentlich | Rust, JS/TS, Actions → Code Scanning |
+| `copilot_findings.yaml` | täglich, manuell | CodeQL-Alerts + Copilot Autofix prüfen, fixen oder verwerfen |
 | Dependabot | täglich | Sicherheitsupdates Cargo/npm als ein PR, Label `security` |
 | `tests.yaml` | PR, vom Sync angestoßen | Unit- und Integrationstests gegen Hiqlite |
 | `arztagent_image.yaml` | Merge mit Label `upstream-sync`/`security` | Image `<version>-aa<n>` |
@@ -34,6 +35,14 @@ Danach öffnet ArztAgent (`rauthy-image-bump.yml`) selbst den PR für `ops/rauth
 
 **Review:** Ein Mensch mergt. Bei KI-gelösten Konflikten jede genannte Datei im Diff lesen;
 Fork-Härtungen (force_mfa, Passkeys, Wiederherstellungscodes) müssen erhalten sein.
+
+## Copilot-Befunde (`arztagent/copilot_findings.py`)
+
+Je Lauf höchstens fünf offene CodeQL-Alerts, schwerste zuerst. Copilot Autofix schreibt seinen
+Fix auf `copilot-autofix/alert-<n>`; Claude Code prüft Befund und Fix
+(`arztagent/copilot_findings_prompt.md`) und entscheidet: `accept`, `improve`, `own-fix` → PR
+mit Label `security`; `dismiss` → Alert mit Begründung verworfen (nur low/medium, sonst Issue
+`security-decision`); `unsure` → Issue. Ein Alert mit offenem PR oder Issue wird übersprungen.
 
 ## Secrets und Variablen
 
