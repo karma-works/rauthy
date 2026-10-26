@@ -95,6 +95,9 @@ jobs:
     timeout-minutes: 240
     container:
       image: ghcr.io/sebadob/rauthy-builder:20260519@sha256:6bea5d732ebfa4613c51a55c1c9c8b5c59dddfde9adbb6eca899d6599fd2b219
+    defaults:
+      run:
+        shell: bash  # the builder's default sh has no pipefail
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
