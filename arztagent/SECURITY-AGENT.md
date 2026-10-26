@@ -47,7 +47,7 @@ mit Label `security`; `dismiss` → Alert mit Begründung verworfen (nur low/med
 ## Secrets und Variablen
 
 - `ANTHROPIC_API_KEY` (eigener Schlüssel mit Ausgabenlimit) oder `CLAUDE_CODE_OAUTH_TOKEN`:
-  nur für die Konfliktlösung. Der Job baut Upstream-Code; der Schlüssel ist dort lesbar.
+  für Upstream-Konflikte und Copilot-Befunde. Die Jobs bauen Code; der Schlüssel ist dort lesbar.
   Deshalb ein eigener, begrenzter Schlüssel, nie ein geteilter.
 - `vars.UPSTREAM_SYNC_MODEL`: Modell-Alias für Claude Code (Standard `opus`).
 - Sonst nur das Workflow-Token; kein Bot-Token mit Zugriff auf andere Repos liegt hier.
