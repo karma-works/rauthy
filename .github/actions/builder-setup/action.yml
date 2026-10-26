@@ -1,0 +1,30 @@
+name: Builder setup
+description: >-
+  Tools, WASM and UI inside ghcr.io/sebadob/rauthy-builder, as in "Code Style" and
+  "ArztAgent image". Run after actions/checkout.
+runs:
+  using: composite
+  steps:
+    - name: Select reviewed Node version
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version: '26.11.1'
+        package-manager-cache: false
+    - name: Build tools, WASM and UI
+      shell: bash
+      run: |
+        set -euo pipefail
+        rm -f /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources
+        cp assets/build_tools/debian.sources /etc/apt/sources.list.d/debian.sources
+        apt-get update --error-on=any
+        apt-get upgrade -y --no-install-recommends
+        apt-get install -y --no-install-recommends build-essential clang python3 patch curl
+        python3 assets/build_tools/builder_openssl.py
+        python3 assets/build_tools/builder_cargo.py
+        python3 assets/build_tools/install.py just wasm-pack wasm-bindgen-cli
+        just build-wasm
+        (cd frontend && npm ci)
+        just build-ui
+        # Only add files the fresh UI build does not produce; never overwrite them.
+        tar -xkzf assets/static_html/templates_html.tar.gz templates/ || true
+        tar -xkzf assets/static_html/static_v1.tar.gz static/ || true

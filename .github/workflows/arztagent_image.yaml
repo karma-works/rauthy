@@ -1,16 +1,20 @@
 name: ArztAgent image
 
 # Builds the amd64 image of this fork and pushes it to ghcr.io/karma-works/rauthy:<tag>,
-# the image ArztAgent pins by digest (ops/rauthy/IMAGE there). Manual only. Same builder
-# container and UI build as "Code Style"; the steps follow `just build` without arm64.
+# the image ArztAgent pins by digest (ops/rauthy/IMAGE there). Same builder container and UI
+# build as "Code Style"; the steps follow `just build` without arm64.
+# Runs by hand, and on every push to main that merges a PR labelled `upstream-sync` or
+# `security` (tag <version>-aa<n+1>). ArztAgent's "Rauthy image bump" then opens its PR.
 
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Image tag, e.g. 0.37.1-aa6'
-        required: true
+        description: 'Image tag, e.g. 0.37.1-aa6 (empty: next free tag)'
+        required: false
         type: string
+  push:
+    branches: [main]
 
 permissions:
   contents: read
@@ -23,19 +27,58 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  decide:
+    name: Decide
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Security merge?
+        id: merged
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          labels=$(curl -sSf -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/$REPO/commits/$SHA/pulls" \
+            | python3 -c 'import json,sys; print(" ".join(l["name"] for p in json.load(sys.stdin) if p.get("merged_at") for l in p["labels"]))')
+          echo "labels: $labels"
+          case " $labels " in
+            *" upstream-sync "*|*" security "*) echo "build=true" >> "$GITHUB_OUTPUT" ;;
+            *) echo "build=false" >> "$GITHUB_OUTPUT" ;;
+          esac
+      - name: Tag
+        id: tag
+        if: github.event_name == 'workflow_dispatch' || steps.merged.outputs.build == 'true'
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          if [ -z "$TAG" ]; then
+            python3 arztagent/upstream_sync.py image-tag
+          else
+            echo "$TAG" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+-aa[0-9]+$' \
+              || { echo "tag must look like 0.37.1-aa6" >&2; exit 1; }
+            echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          fi
+
   binary:
     name: Build release binary
+    needs: decide
+    if: needs.decide.outputs.tag != ''
     runs-on: ubuntu-latest
     timeout-minutes: 150
     container:
       image: ghcr.io/sebadob/rauthy-builder:20260519@sha256:6bea5d732ebfa4613c51a55c1c9c8b5c59dddfde9adbb6eca899d6599fd2b219
     steps:
-      - name: Check tag
-        env:
-          TAG: ${{ inputs.tag }}
-        run: |
-          echo "$TAG" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+-aa[0-9]+$' \
-            || { echo "tag must look like 0.37.1-aa6" >&2; exit 1; }
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
@@ -77,7 +120,7 @@ jobs:
 
   image:
     name: Build and push image
-    needs: binary
+    needs: [decide, binary]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -93,7 +136,7 @@ jobs:
           path: out
       - name: Build and push
         env:
-          TAG: ${{ inputs.tag }}
+          TAG: ${{ needs.decide.outputs.tag }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ACTOR: ${{ github.actor }}
         run: |

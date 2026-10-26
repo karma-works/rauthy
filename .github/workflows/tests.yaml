@@ -1,0 +1,57 @@
+name: Tests
+
+# Unit and integration tests against a seeded Hiqlite test backend, as `just test-hiqlite`.
+# Also dispatched by "Upstream sync" on its branch: PRs opened with the workflow token start no
+# pull_request runs.
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  hiqlite:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    name: Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    container:
+      image: ghcr.io/sebadob/rauthy-builder:20260519@sha256:6bea5d732ebfa4613c51a55c1c9c8b5c59dddfde9adbb6eca899d6599fd2b219
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/builder-setup
+      - name: Sync tooling tests
+        run: python3 -m unittest discover -s arztagent -p 'test_*.py'
+      - name: Build
+        run: cargo build --locked
+      - name: Integration tests (Hiqlite)
+        env:
+          PUB_URL: localhost:8081
+          RP_ORIGIN: http://localhost:8081
+        run: |
+          set -euo pipefail
+          mkdir -p data
+          ./target/debug/rauthy serve -c config-test.toml --test > backend.log 2>&1 &
+          pid=$!
+          for _ in $(seq 1 120); do
+            curl -sf localhost:8081/auth/v1/ping >/dev/null && break
+            kill -0 "$pid" || { tail -50 backend.log; exit 1; }
+            sleep 1
+          done
+          status=0
+          cargo test --locked -- --test-threads=1 || status=$?
+          kill "$pid" || true
+          [ "$status" -eq 0 ] || tail -100 backend.log
+          exit "$status"

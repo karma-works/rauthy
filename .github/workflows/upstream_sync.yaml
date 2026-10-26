@@ -1,0 +1,217 @@
+name: Upstream sync
+
+# Daily: are there new commits in sebadob/rauthy, above all security fixes? If so, merge them
+# into a branch upstream-sync/<sha> and open a PR (label security when a fix is among them).
+# Conflicts go to Claude Code when ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN is set,
+# otherwise to an issue. See arztagent/SECURITY-AGENT.md.
+#
+# Trust split: "prepare" and "resolve" run upstream code (build scripts, Claude's cargo runs)
+# and hold no write token; "publish" only checks the merge bundle and pushes it.
+
+on:
+  schedule:
+    - cron: '17 5 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  UPSTREAM_URL: https://github.com/sebadob/rauthy.git
+  CLAUDE_CODE_VERSION: '2.1.301'
+
+jobs:
+  prepare:
+    name: Plan and merge
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      act: ${{ steps.plan.outputs.act }}
+      security: ${{ steps.plan.outputs.security }}
+      branch: ${{ steps.plan.outputs.branch }}
+      merge: ${{ steps.merge.outputs.result }}
+      agent: ${{ steps.agent.outputs.available }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Fetch upstream
+        run: |
+          git remote add upstream "$UPSTREAM_URL"
+          git fetch --quiet upstream main
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+      - name: Plan
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 arztagent/upstream_sync.py --plan "$RUNNER_TEMP/plan.json" plan
+      - name: Merge
+        id: merge
+        if: steps.plan.outputs.act == 'true'
+        run: |
+          set +e
+          python3 arztagent/upstream_sync.py --plan "$RUNNER_TEMP/plan.json" merge
+          code=$?
+          case $code in
+            0) echo "result=clean" >> "$GITHUB_OUTPUT" ;;
+            3) echo "result=conflict" >> "$GITHUB_OUTPUT" ;;
+            4) echo "result=forbidden" >> "$GITHUB_OUTPUT" ;;
+            *) exit "$code" ;;
+          esac
+      - name: Bundle clean merge
+        if: steps.merge.outputs.result == 'clean'
+        env:
+          BRANCH: ${{ steps.plan.outputs.branch }}
+        run: git bundle create "$RUNNER_TEMP/sync.bundle" "origin/main..$BRANCH"
+      - name: Agent available
+        id: agent
+        env:
+          KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OAUTH: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          if [ -n "$KEY$OAUTH" ]; then echo "available=true"; else echo "available=false"; fi >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: steps.plan.outputs.act == 'true'
+        with:
+          name: sync
+          path: |
+            ${{ runner.temp }}/plan.json
+            ${{ runner.temp }}/sync.bundle
+          if-no-files-found: ignore
+          retention-days: 7
+
+  resolve:
+    name: Resolve conflicts with Claude Code
+    needs: prepare
+    if: needs.prepare.outputs.merge == 'conflict' && needs.prepare.outputs.agent == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    container:
+      image: ghcr.io/sebadob/rauthy-builder:20260519@sha256:6bea5d732ebfa4613c51a55c1c9c8b5c59dddfde9adbb6eca899d6599fd2b219
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: sync
+          path: ${{ runner.temp }}/sync
+      - uses: ./.github/actions/builder-setup
+      - name: Merge again
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git remote add upstream "$UPSTREAM_URL"
+          git fetch --quiet upstream main
+          set +e
+          python3 arztagent/upstream_sync.py --plan "$RUNNER_TEMP/sync/plan.json" merge
+          [ $? -eq 3 ] || { echo "expected conflicts" >&2; exit 1; }
+      - name: Claude Code resolves the conflicts
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          MODEL: ${{ vars.UPSTREAM_SYNC_MODEL || 'opus' }}
+        run: |
+          set -euo pipefail
+          npm install --global --no-fund --no-audit "@anthropic-ai/claude-code@$CLAUDE_CODE_VERSION"
+          python3 - "$RUNNER_TEMP/sync/plan.json" > "$RUNNER_TEMP/prompt.md" <<'PY'
+          import json, sys
+          plan = json.load(open(sys.argv[1]))
+          print(open("arztagent/upstream_sync_prompt.md").read())
+          print("\n## This run\n")
+          print(f"Upstream head: {plan['upstream']}\nConflicted files:")
+          print("\n".join(f"- {f}" for f in plan["conflicts"]))
+          print("\nUpstream commits (security-relevant marked):")
+          for c in plan["commits"]:
+              print(f"- {'[SECURITY] ' if c['security'] else ''}{c['sha'][:10]} {c['subject']}")
+          PY
+          claude -p "$(cat "$RUNNER_TEMP/prompt.md")" --model "$MODEL" --max-turns 300 \
+            --allowedTools Bash Read Edit MultiEdit Write Glob Grep TodoWrite \
+            --disallowedTools WebFetch WebSearch | tee "$RUNNER_TEMP/claude.log"
+      - name: Finish the merge
+        run: python3 arztagent/upstream_sync.py --plan "$RUNNER_TEMP/sync/plan.json" finish
+      - name: Bundle
+        env:
+          BRANCH: ${{ needs.prepare.outputs.branch }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/out"
+          cp "$RUNNER_TEMP/sync/plan.json" "$RUNNER_TEMP/out/plan.json"
+          git bundle create "$RUNNER_TEMP/out/sync.bundle" "origin/main..$BRANCH"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sync-resolved
+          path: ${{ runner.temp }}/out
+          retention-days: 7
+
+  publish:
+    name: Open PR
+    needs: [prepare, resolve]
+    if: >-
+      always() && (needs.prepare.outputs.merge == 'clean' || needs.resolve.result == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      actions: write
+    steps:
+      # Keeps the workflow token for the push; this job uploads no artifacts.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4  # zizmor: ignore[artipacked]
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ needs.prepare.outputs.merge == 'clean' && 'sync' || 'sync-resolved' }}
+          path: ${{ runner.temp }}/sync
+      - name: Fetch upstream
+        run: |
+          git remote add upstream "$UPSTREAM_URL"
+          git fetch --quiet upstream main
+      - name: Push and open the PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python3 arztagent/upstream_sync.py --plan "$RUNNER_TEMP/sync/plan.json" publish \
+            --bundle "$RUNNER_TEMP/sync/sync.bundle" --run-url "$RUN_URL"
+
+  report:
+    name: Ask for help
+    needs: [prepare, resolve]
+    if: >-
+      always() && (needs.prepare.outputs.merge == 'forbidden' ||
+      (needs.prepare.outputs.merge == 'conflict' && needs.resolve.result != 'success'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: sync
+          path: ${{ runner.temp }}/sync
+      - name: Open or update the issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          REASON: >-
+            ${{ needs.prepare.outputs.merge == 'forbidden' && 'Workflow-Dateien betroffen' ||
+            needs.prepare.outputs.agent != 'true' && 'kein Agent-Schlüssel gesetzt' ||
+            'die Konfliktlösung durch Claude Code ist gescheitert' }}
+        run: |
+          python3 arztagent/upstream_sync.py --plan "$RUNNER_TEMP/sync/plan.json" conflict \
+            --reason "$REASON" --run-url "$RUN_URL"
