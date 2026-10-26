@@ -6,7 +6,7 @@ name: Tests
 
 on:
   pull_request:
-    types: [opened, reopened, synchronize, ready_for_review]
+    types: [opened, reopened, synchronize, ready_for_review]  # drafts too: the tests are cheap here
   workflow_dispatch:
 
 permissions:
@@ -21,7 +21,6 @@ env:
 
 jobs:
   hiqlite:
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: Tests
     runs-on: ubuntu-latest
     timeout-minutes: 150
