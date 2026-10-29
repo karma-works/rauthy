@@ -152,11 +152,11 @@ pub async fn get_forward_auth_client(
     user.check_enabled()?;
     user.check_expired()?;
     client.validate_user_groups(&user)?;
-    client.validate_mfa(&user, None).await?;
+    client.validate_mfa_method(session.mfa_method)?;
 
     let headers = &RauthyConfig::get().vars.auth_headers;
     if headers.enable {
-        let mfa_enabled = user.has_webauthn_enabled();
+        let mfa_enabled = session.mfa_method.is_mfa();
         let pref_username = if headers.enable_pref_username {
             UserValues::find_preferred_username(&user.id).await?
         } else {
@@ -289,8 +289,6 @@ pub async fn get_forward_auth_client_callback(
     user.check_enabled()?;
     user.check_expired()?;
     client.validate_user_groups(&user)?;
-    client.validate_mfa(&user, None).await?;
-
     let mut session = Session::find(sid).await?;
     if session.user_id.as_deref() != Some(user.id.as_str()) {
         return Err(ErrorResponse::new(
@@ -299,7 +297,9 @@ pub async fn get_forward_auth_client_callback(
         ));
     }
 
-    // all good
+    // The upstream login may have proved MFA without enrolling a local factor.
+    // Use the verified proof on this exact session, as the other non-interactive grants do.
+    client.validate_mfa_method(session.mfa_method)?;
 
     // update session metadata
     if session.state != SessionState::Auth {
