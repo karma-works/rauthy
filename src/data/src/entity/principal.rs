@@ -607,14 +607,22 @@ impl Principal {
 
     #[inline(always)]
     pub fn validate_session_auth(&self) -> Result<&Session, ErrorResponse> {
+        let session = self.validate_session_auth_state()?;
+        if session.mfa_method == MfaMethod::Provider {
+            RauthyConfig::get()
+                .vars
+                .access
+                .validate_provider_client("rauthy")?;
+        }
+        Ok(session)
+    }
+
+    /// Global OIDC operations (notably logout) need session validity independently of
+    /// native account access. The authorization/token boundaries enforce the actual client.
+    #[inline(always)]
+    pub fn validate_session_auth_state(&self) -> Result<&Session, ErrorResponse> {
         if let Some(session) = &self.session {
             if session.state()? == SessionState::Auth {
-                if session.mfa_method == MfaMethod::Provider {
-                    RauthyConfig::get()
-                        .vars
-                        .access
-                        .validate_provider_client("rauthy")?;
-                }
                 Ok(session)
             } else {
                 trace!("Validating the session failed - was not in auth state");

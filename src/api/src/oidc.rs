@@ -180,7 +180,7 @@ pub async fn get_authorize(
             .as_ref()
             .map(|p| p.contains("none"))
             .unwrap_or(false)
-        && (shared_device_id.is_some() || principal.validate_session_auth().is_err())
+        && (shared_device_id.is_some() || principal.validate_session_auth_state().is_err())
     {
         // RFC 9207 - error responses carry `iss` as well
         let loc = authorization_redirect(
@@ -250,7 +250,7 @@ pub async fn get_authorize(
     if !force_new_session
         && !prompt_consent
         && shared_device_id.is_none()
-        && principal.validate_session_auth().is_ok()
+        && principal.validate_session_auth_state().is_ok()
     {
         let csrf = principal.get_session_csrf_token()?;
 
@@ -490,7 +490,7 @@ pub async fn post_authorize_refresh(
     Json(payload): Json<LoginRefreshRequest>,
     principal: ReqPrincipal,
 ) -> Result<HttpResponse, ErrorResponse> {
-    principal.validate_session_auth()?;
+    principal.validate_session_auth_state()?;
     payload.validate()?;
 
     let session = principal.into_inner().session.unwrap();
@@ -759,7 +759,7 @@ pub async fn post_device_verify(
     Json(payload): Json<DeviceVerifyRequest>,
     principal: ReqPrincipal,
 ) -> Result<HttpResponse, ErrorResponse> {
-    principal.validate_session_auth()?;
+    principal.validate_session_auth_state()?;
     payload.validate()?;
 
     let challenge = Pow::validate(&payload.pow)?;
@@ -781,6 +781,7 @@ pub async fn post_device_verify(
             let mfa_method = principal.get_session()?.mfa_method;
             let client = Client::find(device_code.client_id.clone()).await?;
             client.validate_mfa_method(mfa_method)?;
+            client.validate_auth_source(mfa_method)?;
 
             device_code.verified_by = Some(principal.user_id()?.to_string());
             device_code.mfa_method = mfa_method;
@@ -847,7 +848,7 @@ pub async fn get_logout(
     } else if let Some(principal) = principal {
         // If we get any logout errors, maybe because there is no session anymore or whatever happens,
         // just redirect to Rauthys root page, since the user is not logged-in anyway anymore.
-        if principal.validate_session_auth().is_err() {
+        if principal.validate_session_auth_state().is_err() {
             return Ok(HttpResponse::build(StatusCode::from_u16(302).unwrap())
                 .insert_header(("location", "/auth/v1/"))
                 .finish());
@@ -890,7 +891,7 @@ pub async fn post_logout(
     req: HttpRequest,
 ) -> Result<HttpResponse, ErrorResponse> {
     payload.validate()?;
-    let session = principal.and_then(|p| p.validate_session_auth().ok().cloned());
+    let session = principal.and_then(|p| p.validate_session_auth_state().ok().cloned());
     logout::post_logout_handle(req, payload, session).await
 }
 
@@ -991,7 +992,7 @@ pub async fn post_session(
 )]
 #[get("/oidc/sessioninfo")]
 pub async fn get_session_info(principal: ReqPrincipal) -> HttpResponse {
-    if let Err(err) = principal.validate_session_auth() {
+    if let Err(err) = principal.validate_session_auth_state() {
         return HttpResponse::Unauthorized()
             .insert_header(FedCMLoginStatus::LoggedOut.as_header_pair())
             .json(err);
@@ -1057,7 +1058,7 @@ pub async fn get_session_info(principal: ReqPrincipal) -> HttpResponse {
 )]
 #[get("/oidc/sessioninfo/xsrf")]
 pub async fn get_session_xsrf(principal: ReqPrincipal) -> Result<HttpResponse, ErrorResponse> {
-    principal.validate_session_auth()?;
+    principal.validate_session_auth_state()?;
     let session = principal.get_session()?;
 
     let timeout = OffsetDateTime::from_unix_timestamp(session.last_seen)

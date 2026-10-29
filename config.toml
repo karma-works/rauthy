@@ -322,6 +322,15 @@ admin_button_hide = false
 # overwritten by: LOGIN_LAYOUT
 #login_layout = 'default'
 
+# Optional client allowlist for upstream logins and persisted provider MFA proofs.
+# Unset preserves existing behavior; an empty JSON array disables upstream login.
+# A linked account can still authenticate with its local factors on other clients.
+# Link-only account federation does not issue tokens and remains possible after local login.
+# User token exchange is disabled while this policy is active: subject JWTs do not
+# distinguish provider MFA from local MFA. Service token exchange is unaffected.
+# overwritten by: PROVIDER_LOGIN_CLIENTS
+#provider_login_clients = '["aa-mailpit"]'
+
 [atproto]
 # Set to `true` to enable the ATProto provider. If the public URL is
 # 'localhost' it should be changed to '127.0.0.1', if `dev_mode = true`
