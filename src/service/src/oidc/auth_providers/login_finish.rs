@@ -67,6 +67,11 @@ pub async fn login_finish<'a>(
     let link_cookie = ApiCookie::from_req(req, PROVIDER_LINK_COOKIE)
         .and_then(|value| AuthProviderLinkCookie::try_from(value.as_str()).ok());
 
+    let client = Client::find_maybe_ephemeral(slf.req_client_id.clone()).await?;
+    if link_cookie.is_none() {
+        client.validate_provider_login()?;
+    }
+
     // deserialize payload and validate the information
     let (user, provider_mfa_login, is_new_user) = if provider.issuer == PROVIDER_ATPROTO {
         slf.extract_user_at_proto(&provider, &link_cookie, payload)
@@ -100,7 +105,6 @@ pub async fn login_finish<'a>(
     session.is_mfa = false;
     session.mfa_method = MfaMethod::None;
 
-    let client = Client::find_maybe_ephemeral(slf.req_client_id).await?;
     let header_origin = client.get_validated_origin_header(req)?;
 
     let auth_step = oidc::authorize::finish_authorize(

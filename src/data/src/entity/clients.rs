@@ -1419,6 +1419,22 @@ impl Client {
         }
     }
 
+    /// Constrain verified upstream proofs independently of factor enrollment or mutable links.
+    /// The same policy applies to fresh upstream logins, stored sessions and refresh proofs.
+    pub fn validate_auth_source(&self, method: MfaMethod) -> Result<(), ErrorResponse> {
+        if method == MfaMethod::Provider {
+            self.validate_provider_login()?;
+        }
+        Ok(())
+    }
+
+    pub fn validate_provider_login(&self) -> Result<(), ErrorResponse> {
+        RauthyConfig::get()
+            .vars
+            .access
+            .validate_provider_client(&self.id)
+    }
+
     // Validates the `Origin` HTTP Header from an incoming request and compares it to the
     // `allowed_origins`. If the Origin is an external one and allowed by the config, it returns
     // the correct `ACCESS_CONTROL_ALLOW_ORIGIN` header which can then be inserted into the

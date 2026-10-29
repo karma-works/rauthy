@@ -389,6 +389,11 @@ pub(crate) async fn finish_authorize(
     provider_mfa_login: Option<ProviderMfaLogin>,
 ) -> Result<AuthStep, ErrorResponse> {
     let is_provider_mfa = provider_mfa_login == Some(ProviderMfaLogin::Yes);
+    client.validate_auth_source(if is_provider_mfa {
+        MfaMethod::Provider
+    } else {
+        session.mfa_method
+    })?;
     client.validate_enabled()?;
     client
         .validate_mfa(&user, provider_mfa_login)

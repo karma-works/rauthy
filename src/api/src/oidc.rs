@@ -195,7 +195,11 @@ pub async fn get_authorize(
             .finish());
     }
 
-    let auth_providers_json = AuthProviderTemplate::get_all_json_template().await?;
+    let auth_providers_json = if client.validate_provider_login().is_ok() {
+        AuthProviderTemplate::get_all_json_template().await?
+    } else {
+        "[]".to_string()
+    };
     let logo_updated = Logo::find_updated(&client.id, &LogoType::Client).await?;
     let favicon_updated =
         Logo::find_updated_with_res(&client.id, LogoRes::Favicon, &LogoType::Client).await?;

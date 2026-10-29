@@ -12,6 +12,7 @@ use hiqlite::NodeConfig;
 use rauthy_common::constants::CookieMode;
 use rauthy_common::logging::LogLevelAccess;
 use rauthy_common::regex::{RE_LINUX_USERNAME, RE_PREFERRED_USERNAME};
+use rauthy_error::{ErrorResponse, ErrorResponseType};
 use regex::Regex;
 use serde::Serialize;
 use spow::pow::Pow;
@@ -334,6 +335,7 @@ impl Default for Vars {
                 admin_button_hide: false,
                 redirect_root_to_account: false,
                 login_layout: LoginLayout::Default,
+                provider_login_clients: None,
             },
             auth_headers: VarsAuthHeaders {
                 enable: false,
@@ -1679,6 +1681,20 @@ impl Vars {
         }
         if let Some(v) = t_str(&mut table, "access", "login_layout", "LOGIN_LAYOUT") {
             self.access.login_layout = LoginLayout::parse(&v);
+        }
+        if let Some(v) = t_str(
+            &mut table,
+            "access",
+            "provider_login_clients",
+            "PROVIDER_LOGIN_CLIENTS",
+        ) {
+            let clients: Vec<String> = serde_json::from_str(&v)
+                .expect("PROVIDER_LOGIN_CLIENTS must be a JSON array of client IDs");
+            assert!(
+                clients.iter().all(|id| !id.is_empty()),
+                "PROVIDER_LOGIN_CLIENTS contains an empty client ID"
+            );
+            self.access.provider_login_clients = Some(clients);
         }
 
         check_table_empty(table, "access");
@@ -4381,6 +4397,22 @@ pub struct VarsAccess {
     pub admin_button_hide: bool,
     pub redirect_root_to_account: bool,
     pub login_layout: LoginLayout,
+    /// Optional upstream-login boundary. None preserves existing behavior; an empty list denies all.
+    pub provider_login_clients: Option<Vec<String>>,
+}
+
+impl VarsAccess {
+    pub fn validate_provider_client(&self, client_id: &str) -> Result<(), ErrorResponse> {
+        if let Some(clients) = &self.provider_login_clients
+            && !clients.iter().any(|id| id == client_id)
+        {
+            return Err(ErrorResponse::new(
+                ErrorResponseType::Forbidden,
+                "Upstream login is not permitted for this client; use a local factor",
+            ));
+        }
+        Ok(())
+    }
 }
 
 /// Layout of the login page, see `access.login_layout`.

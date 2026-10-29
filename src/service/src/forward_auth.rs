@@ -153,6 +153,7 @@ pub async fn get_forward_auth_client(
     user.check_expired()?;
     client.validate_user_groups(&user)?;
     client.validate_mfa_method(session.mfa_method)?;
+    client.validate_auth_source(session.mfa_method)?;
 
     let headers = &RauthyConfig::get().vars.auth_headers;
     if headers.enable {
@@ -300,6 +301,7 @@ pub async fn get_forward_auth_client_callback(
     // The upstream login may have proved MFA without enrolling a local factor.
     // Use the verified proof on this exact session, as the other non-interactive grants do.
     client.validate_mfa_method(session.mfa_method)?;
+    client.validate_auth_source(session.mfa_method)?;
 
     // update session metadata
     if session.state != SessionState::Auth {

@@ -1,5 +1,5 @@
 use crate::entity::api_keys::{AccessGroup, AccessRights, ApiKey};
-use crate::entity::sessions::{Session, SessionState};
+use crate::entity::sessions::{MfaMethod, Session, SessionState};
 use crate::rauthy_config::RauthyConfig;
 use actix_web::{HttpRequest, web};
 use rauthy_common::constants::{RAUTHY_ADMIN_GROUP_PREFIX, RAUTHY_ADMIN_ROLE};
@@ -609,6 +609,12 @@ impl Principal {
     pub fn validate_session_auth(&self) -> Result<&Session, ErrorResponse> {
         if let Some(session) = &self.session {
             if session.state()? == SessionState::Auth {
+                if session.mfa_method == MfaMethod::Provider {
+                    RauthyConfig::get()
+                        .vars
+                        .access
+                        .validate_provider_client("rauthy")?;
+                }
                 Ok(session)
             } else {
                 trace!("Validating the session failed - was not in auth state");
