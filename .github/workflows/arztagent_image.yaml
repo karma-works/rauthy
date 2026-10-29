@@ -1,8 +1,10 @@
 name: ArztAgent image
 
-# Builds the amd64 image of this fork and pushes it to ghcr.io/karma-works/rauthy:<tag>,
-# the image ArztAgent pins by digest (ops/rauthy/IMAGE there). Manual only. Same builder
-# container and UI build as "Code Style"; the steps follow `just build` without arm64.
+# Builds the multi-arch (amd64 + arm64) image of this fork and pushes it to
+# ghcr.io/karma-works/rauthy:<tag>, the image ArztAgent pins by digest (ops/rauthy/IMAGE there).
+# The digest is the manifest list, so Apple Silicon Macs pull the native arm64 image. Manual only.
+# Same builder container and UI build as "Code Style"; the steps follow `just build`: both
+# binaries are built on x86 runners, arm64 is cross-compiled like upstream does.
 
 on:
   workflow_dispatch:
@@ -24,8 +26,16 @@ env:
 
 jobs:
   binary:
-    name: Build release binary
+    name: Build release binary (${{ matrix.arch }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - arch: amd64
+            target: x86_64-unknown-linux-gnu
+          - arch: arm64
+            target: aarch64-unknown-linux-gnu
     timeout-minutes: 150
     container:
       image: ghcr.io/sebadob/rauthy-builder:20260519@sha256:6bea5d732ebfa4613c51a55c1c9c8b5c59dddfde9adbb6eca899d6599fd2b219
@@ -50,7 +60,8 @@ jobs:
           cp assets/build_tools/debian.sources /etc/apt/sources.list.d/debian.sources
           apt-get update --error-on=any
           apt-get upgrade -y --no-install-recommends
-          apt-get install -y --no-install-recommends build-essential clang python3 patch
+          apt-get install -y --no-install-recommends build-essential clang python3 patch \
+            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
           python3 assets/build_tools/builder_openssl.py
           python3 assets/build_tools/builder_cargo.py
           python3 assets/build_tools/install.py just wasm-pack wasm-bindgen-cli
@@ -65,14 +76,21 @@ jobs:
       - name: FIDO MDS dataset
         run: just fido-mds-prep
       - name: Release build
+        env:
+          ARCH: ${{ matrix.arch }}
+          TARGET: ${{ matrix.target }}
         run: |
-          cargo build --locked --release
+          rustup target add "$TARGET"
+          # Same as `just build`: 64 KiB jemalloc pages run on 4K (most arm64 Linux) and
+          # 16K (Apple Silicon / Docker Desktop) kernels alike.
+          if [ "$ARCH" = arm64 ]; then export JEMALLOC_SYS_WITH_LG_PAGE=16; fi
+          cargo build --locked --release --target "$TARGET"
           mkdir -p out
-          cp target/release/rauthy out/rauthy_amd64
+          cp "target/$TARGET/release/rauthy" "out/rauthy_$ARCH"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: rauthy_amd64
-          path: out/rauthy_amd64
+          name: rauthy_${{ matrix.arch }}
+          path: out/rauthy_${{ matrix.arch }}
           retention-days: 3
 
   image:
@@ -89,7 +107,8 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: rauthy_amd64
+          pattern: rauthy_*
+          merge-multiple: true
           path: out
       - name: Build and push
         env:
@@ -97,12 +116,12 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ACTOR: ${{ github.actor }}
         run: |
-          chmod 0755 out/rauthy_amd64
+          chmod 0755 out/rauthy_amd64 out/rauthy_arm64
           mkdir -p out/empty
           echo "$GH_TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
           docker buildx create --use
           docker buildx build \
-            --platform linux/amd64 \
+            --platform linux/amd64,linux/arm64 \
             --build-arg CREATED="$(date --rfc-3339=seconds)" \
             --build-arg VERSION="$TAG" \
             -t "ghcr.io/karma-works/rauthy:$TAG" \

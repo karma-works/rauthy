@@ -20,8 +20,8 @@ Nebentext `#606966`, Rahmen `#DDDAD2`/`#7A817D`, Radius 6/8/12, Schrift Geist).
 - **Prüfen:** `just pre-pr-checks`; Integrationstests mit Hiqlite und Postgres, wenn Abfragen sich
   ändern; Playwright mit virtuellem Authenticator (`WebAuthn.addVirtualAuthenticator`) für jeden
   neuen Ablauf.
-- **Image:** nach dem Merge nativ amd64 mit `fido-mds-prep` bauen, Digest an arzt-agent
-  (`ops/rauthy/IMAGE`) melden.
+- **Image:** nach dem Merge per Workflow „ArztAgent image“ für amd64 und arm64 (mit
+  `fido-mds-prep`) bauen, Digest der Manifest-Liste an arzt-agent (`ops/rauthy/IMAGE`) melden.
 - **Texte:** Deutsch über `frontend/src/i18n/common/de.ts` (und `en.ts` als Fallback), keine fest
   eingebauten Texte.
 
