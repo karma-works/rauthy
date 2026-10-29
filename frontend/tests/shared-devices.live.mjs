@@ -221,7 +221,7 @@ function jwtPayload(token) {
     return JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString());
 }
 
-async function exchangeCode(callbackUrl) {
+async function exchangeCode(callbackUrl, clientId = CLIENT_ID) {
     const code = new URL(callbackUrl).searchParams.get('code');
     const res = await fetch(`${BASE}/auth/v1/oidc/token`, {
         method: 'POST',
@@ -230,7 +230,7 @@ async function exchangeCode(callbackUrl) {
             grant_type: 'authorization_code',
             code,
             redirect_uri: CALLBACK,
-            client_id: CLIENT_ID,
+            client_id: clientId,
             code_verifier: VERIFIER,
         }),
     });
@@ -469,6 +469,38 @@ test('shared devices: register a PC, PIN login, lock and unlock', async t => {
     assert.equal(res.status, 204, res.text);
     await pc.goto(authorizeUrl(CLIENT_ID));
     await pc.getByText('Empfang 2 · Praxis Test').waitFor();
+
+    // An unrelated client (including the operator login) keeps its ordinary MFA semantics.
+    const otherClient = `account-${Date.now()}`;
+    res = await api(admin, 'POST', '/clients', {
+        id: otherClient,
+        name: 'Unrelated MFA client',
+        confidential: false,
+        redirect_uris: [CALLBACK],
+    });
+    assert.equal(res.status, 200, res.text);
+    res = await api(admin, 'GET', `/clients/${otherClient}`);
+    res = await api(admin, 'PUT', `/clients/${otherClient}`, {
+        ...res.json,
+        force_mfa: true,
+        flows_enabled: ['authorization_code', 'refresh_token'],
+    });
+    assert.equal(res.status, 200, res.text);
+    await pc.goto(authorizeUrl(otherClient, '&prompt=login'));
+    await pc.locator('input[name=email]').fill(emailA);
+    await pc.getByRole('button', { name: 'Login', exact: true }).first().click();
+    const accountPassword = pc.locator('input[name=password]');
+    await Promise.race([accountPassword.waitFor(), pc.waitForURL(/\/oidc\/callback/)]);
+    if (await accountPassword.isVisible()) {
+        await accountPassword.fill(PWD);
+        await pc.getByRole('button', { name: 'Login', exact: true }).first().click();
+    }
+    await pc.waitForURL(/\/oidc\/callback/);
+    const ordinary = jwtPayload((await exchangeCode(pc.url(), otherClient)).access_token);
+    assert.deepEqual(ordinary.amr, ['mfa']);
+    for (const claim of ['aa_practice_role', 'aa_practice_id', 'aa_shared_session']) {
+        assert.equal(ordinary[claim], undefined, claim);
+    }
 
     // --- optional practice roles use their own PINs and keep the account's personal PIN
     const roles = `/shared_devices/practices/${PRACTICE}/roles`;

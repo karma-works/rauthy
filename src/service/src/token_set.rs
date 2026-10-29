@@ -220,7 +220,8 @@ impl TokenSet {
             None
         };
 
-        let role_claims = practice_role_claims(sid.as_ref()).await?;
+        let role_claims =
+            practice_role_claims(sid.as_ref(), shared_devices::is_pin_client(&client.id)).await?;
         let issued_token =
             IssuedToken::create(user_id, did.as_deref(), sid.map(|sid| sid.0), exp).await?;
 
@@ -514,7 +515,10 @@ impl TokenSet {
         claims
             .custom_flattened
             .get_or_insert_with(HashMap::new)
-            .extend(practice_role_claims(sid.as_ref()).await?);
+            .extend(
+                practice_role_claims(sid.as_ref(), shared_devices::is_pin_client(&client.id))
+                    .await?,
+            );
         let key_pair_alg = JwkKeyPairAlg::from_str(&client.id_token_alg)?;
         let kp = JwkKeyPair::find_latest(key_pair_alg).await?;
         JwtToken::build(&kp, &claims, JwtHeaderType::Jwt)
@@ -940,6 +944,39 @@ fn amr_for(mfa_method: MfaMethod) -> JwtAmrValue {
     }
 }
 
+async fn practice_role_claims(
+    sid: Option<&SessionId>,
+    practice_client: bool,
+) -> Result<HashMap<String, serde_json::Value>, ErrorResponse> {
+    let mut claims = HashMap::new();
+    // A coupled browser must not bind an operator or unrelated client's MFA login to a practice.
+    if !practice_client {
+        return Ok(claims);
+    }
+    if let Some(sid) = sid {
+        let session = Session::find(sid.0.clone()).await?;
+        if session.shared_device_id.is_some() {
+            claims.insert("aa_shared_session".to_string(), serde_json::json!(sid.0));
+            let device = shared_devices::SharedDevice::find(
+                session.shared_device_id.as_deref().unwrap_or_default(),
+            )
+            .await?;
+            claims.insert(
+                "aa_practice_id".to_string(),
+                serde_json::json!(device.practice_id),
+            );
+            if let Some(role) = rauthy_data::entity::practice_roles::for_session(&sid.0).await? {
+                claims.insert("aa_practice_role".to_string(), serde_json::json!(role.role));
+                claims.insert(
+                    "aa_practice_id".to_string(),
+                    serde_json::json!(role.practice_id),
+                );
+            }
+        }
+    }
+    Ok(claims)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1002,32 +1039,4 @@ mod tests {
         let sha512 = AtHash::build(ref_token, AtHashAlg::Sha512);
         assert_eq!(&sha512.0, "p2LHG4H-8pYDc0hyVOo3iIHvZJUqe9tbj3jESOuXbkY");
     }
-}
-
-async fn practice_role_claims(
-    sid: Option<&SessionId>,
-) -> Result<HashMap<String, serde_json::Value>, ErrorResponse> {
-    let mut claims = HashMap::new();
-    if let Some(sid) = sid {
-        let session = Session::find(sid.0.clone()).await?;
-        if session.shared_device_id.is_some() {
-            claims.insert("aa_shared_session".to_string(), serde_json::json!(sid.0));
-            let device = shared_devices::SharedDevice::find(
-                session.shared_device_id.as_deref().unwrap_or_default(),
-            )
-            .await?;
-            claims.insert(
-                "aa_practice_id".to_string(),
-                serde_json::json!(device.practice_id),
-            );
-            if let Some(role) = rauthy_data::entity::practice_roles::for_session(&sid.0).await? {
-                claims.insert("aa_practice_role".to_string(), serde_json::json!(role.role));
-                claims.insert(
-                    "aa_practice_id".to_string(),
-                    serde_json::json!(role.practice_id),
-                );
-            }
-        }
-    }
-    Ok(claims)
 }

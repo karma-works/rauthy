@@ -310,24 +310,6 @@ pub async fn live_session(id: &str) -> Result<serde_json::Value, ErrorResponse> 
         "role": role.map(|r| r.role)}))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn domain_separation_and_role_validation() {
-        assert_ne!(
-            hash(&[1; 32], "p", "staff", "0123"),
-            hash(&[1; 32], "p", "administration", "0123")
-        );
-        assert_ne!(
-            hash(&[1; 32], "p", "staff", "0123"),
-            hash(&[1; 32], "other", "staff", "0123")
-        );
-        assert!(validate_role("staff").is_ok());
-        assert!(validate_role("operator").is_err());
-    }
-}
-
 /// Password-only lock. Passkey and device authentication never read this counter.
 pub async fn validate_account_password(
     user: &crate::entity::users::User,
@@ -409,4 +391,22 @@ pub async fn cleanup_expired_locks() -> Result<(), ErrorResponse> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn domain_separation_and_role_validation() {
+        assert_ne!(
+            hash(&[1; 32], "p", "staff", "0123"),
+            hash(&[1; 32], "p", "administration", "0123")
+        );
+        assert_ne!(
+            hash(&[1; 32], "p", "staff", "0123"),
+            hash(&[1; 32], "other", "staff", "0123")
+        );
+        assert!(validate_role("staff").is_ok());
+        assert!(validate_role("operator").is_err());
+    }
 }

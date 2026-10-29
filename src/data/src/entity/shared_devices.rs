@@ -1423,6 +1423,11 @@ impl SharedDeviceEvent {
     }
 }
 
+/// Explicitly configured practice clients only. Does not change the operator or admin client.
+pub fn is_password_client(client: &str) -> bool {
+    RauthyConfig::get().vars.shared_devices.password_login && is_pin_client(client)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1497,9 +1502,4 @@ mod tests {
         assert!(!verify_signature(&public, b"other", sig.as_ref()));
         assert!(validate_public_key(&public[1..]).is_err());
     }
-}
-
-/// Explicitly configured practice clients only. Does not change the operator or admin client.
-pub fn is_password_client(client: &str) -> bool {
-    RauthyConfig::get().vars.shared_devices.password_login && is_pin_client(client)
 }

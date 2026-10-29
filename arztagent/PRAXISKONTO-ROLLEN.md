@@ -42,8 +42,9 @@ geprüft. Im Rollenmodus dürfen persönliche PINs die Rollenauswahl nicht umgeh
 Eine PIN gilt praxisweit, ist frei wählbar und vierstellig. Speicherung: HMAC mit Kontext
 für Praxis und Rolle; kein Klartext. Änderung beendet die bisherigen Sitzungen dieser Rolle.
 
-Tokens tragen `aa_shared_session`, `aa_practice_id` und bei Rollen zusätzlich
-`aa_practice_role`. Das Anwendungsbackend prüft Signatur, Praxis, Kontorechte, Rollenobergrenze
+Tokens freigegebener Praxisclients tragen `aa_shared_session`, `aa_practice_id` und bei Rollen
+zusätzlich `aa_practice_role`. Andere Clients erhalten keine Praxisbindung. Das Anwendungsbackend
+prüft Signatur, Praxis, Kontorechte, Rollenobergrenze
 und lebende Gerätesitzung. Rollenwechsel beendet alte Sitzungen und Refresh-Tokens.
 Passkeys oder Kennwörter allein werden nicht als Rollen-PIN-Nachweis ausgegeben.
 
