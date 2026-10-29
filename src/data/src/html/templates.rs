@@ -68,6 +68,7 @@ pub enum HtmlTemplate {
     LegalLinks,
     LoginAction(FrontendAction),
     /// `access.login_layout` for the requesting client
+    PracticePassword(bool),
     LoginLayout(LoginLayout),
     OtpLength(u8),
     PasskeyAccountsNoPassword(bool),
@@ -104,6 +105,7 @@ impl HtmlTemplate {
             Self::IsRegOpen(_) => "tpl_is_reg_open",
             Self::LegalLinks => "tpl_legal_links",
             Self::LoginAction(_) => "tpl_login_action",
+            Self::PracticePassword(_) => "tpl_practice_password",
             Self::LoginLayout(_) => "tpl_login_layout",
             Self::OtpLength(_) => "tpl_otp_length",
             Self::PasskeyAccountsNoPassword(_) => "tpl_passkey_accounts_no_password",
@@ -138,9 +140,12 @@ impl HtmlTemplate {
             Self::IsRegOpen(i) => i.to_string(),
             Self::LegalLinks => legal_links_json(&RauthyConfig::get().vars.legal),
             Self::LoginAction(i) => i.to_string(),
+            Self::PracticePassword(i) => i.to_string(),
             Self::LoginLayout(i) => i.as_str().to_string(),
             Self::OtpLength(i) => i.to_string(),
-            Self::PasskeyAccountsNoPassword(i) => i.to_string(),
+            Self::PasskeyAccountsNoPassword(i) => {
+                (*i && !RauthyConfig::get().vars.shared_devices.password_login).to_string()
+            }
             Self::PasskeyRegType => RauthyConfig::get().vars.webauthn.passkey_reg_type_str(),
             Self::PasswordReset(i) => serde_json::to_string(i).unwrap(),
             Self::RecoveryCodes => RauthyConfig::get().vars.webauthn.recovery_codes.to_string(),

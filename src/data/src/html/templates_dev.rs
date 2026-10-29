@@ -108,6 +108,14 @@ impl HtmlTemplate {
             "tpl_passkey_reg_type" => Ok((Self::PasskeyRegType, None)),
             "tpl_recovery_codes" => Ok((Self::RecoveryCodes, None)),
             // depends on the device cookie, the dev UI has no shared device
+            "tpl_practice_password" => Ok((
+                Self::PracticePassword(
+                    client_id
+                        .as_deref()
+                        .is_some_and(crate::entity::shared_devices::is_password_client),
+                ),
+                None,
+            )),
             "tpl_shared_device" => Ok((
                 Self::SharedDevice(
                     r#"{"label":"","practice":"","locked":false,"pin":false}"#.to_string(),

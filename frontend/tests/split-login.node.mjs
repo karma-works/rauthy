@@ -44,7 +44,7 @@ after(async () => browser?.close());
  */
 async function openLogin(
     t,
-    { layout, width = 1280, height = 800, authorize, recovery = false, finish },
+    { layout, width = 1280, height = 800, authorize, recovery = false, finish, password = false },
 ) {
     const context = await browser.newContext({
         serviceWorkers: 'block',
@@ -76,6 +76,7 @@ async function openLogin(
         }),
         tpl_login_layout: layout,
         tpl_recovery_codes: String(recovery),
+        tpl_practice_password: String(password),
     };
     await context.route('**/*', async route => {
         const request = route.request();
@@ -430,4 +431,36 @@ test('split layout: a passkey unknown to the backend shows the recovery instead 
         assert.equal(requests.filter(r => r === 'POST /auth/v1/users/webauthn_finish').length, 1);
         assert.equal(await page.evaluate(() => window.__notReloaded), true);
     }
+});
+
+test('password is an explicit additional method without a passkey ceremony', async t => {
+    let submitted;
+    const { page, requests } = await openLogin(t, {
+        layout: 'split',
+        password: true,
+        authorize: (route, body) => {
+            submitted = body;
+            return route.fulfill({ status: 401, json: { message: 'Invalid credentials' } });
+        },
+    });
+    await page.getByText('Mit Passwort anmelden', { exact: true }).first().click();
+    await page.locator('#password-email').fill('synthetic@example.com');
+    await page.getByLabel('Passwort', { exact: true }).fill('synthetic-account-password');
+    const response = page.waitForResponse(
+        r => r.url().includes('/oidc/authorize') && r.request().method() === 'POST',
+    );
+    await page.getByRole('button', { name: 'Mit Passwort anmelden', exact: true }).click();
+    await response;
+    assert.equal(submitted.password, 'synthetic-account-password');
+    assert.equal(submitted.email, 'synthetic@example.com');
+    assert.equal(submitted.resident_key_token, undefined);
+    assert.equal(
+        requests.some(request => request.includes('webauthn_start')),
+        false,
+    );
+});
+
+test('password option is absent without explicit client configuration', async t => {
+    const { page } = await openLogin(t, { layout: 'split' });
+    assert.equal(await page.getByText('Mit Passwort anmelden', { exact: true }).count(), 0);
 });

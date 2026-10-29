@@ -46,7 +46,7 @@ Handlers live in `src/api/src/<area>.rs`, business logic in the matching module 
 `src/service/src/` (simple requests go straight to `src/data/src/`), and DB-touching entity methods
 in `src/data/src/entity/<entity>.rs`. Areas include: `oidc`, `pam`, `users`, `clients`, `groups`,
 `roles`, `scopes`, `sessions`, `api_keys`, `auth_providers`, `backup`, `blacklist`, `email`,
-`events`, `fed_cm`, `kv`, `tos`, `themes`, `atproto`, `shared_devices` (PIN login on shared PCs).
+`events`, `fed_cm`, `kv`, `tos`, `themes`, `atproto`, `shared_devices` (PIN login on shared PCs), `practice_roles` (optional shared roles and locks).
 
 Entity files contain the struct and DB/cache methods
 (`find_*`, `create`, `update`, `save`, `delete`).

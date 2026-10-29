@@ -158,9 +158,16 @@ pub async fn post_authorize(
         ));
     }
 
+    let practice_password = req_data.password.is_some()
+        && rauthy_data::entity::shared_devices::is_password_client(&req_data.client_id);
     if let Some(pwd) = req_data.password {
         *has_password_been_hashed = true;
-        if let Err(err) = user.validate_password(pwd.clone()).await {
+        let validation = if practice_password {
+            rauthy_data::entity::practice_roles::validate_account_password(&user, pwd.clone()).await
+        } else {
+            user.validate_password(pwd.clone()).await
+        };
+        if let Err(err) = validation {
             let ip = real_ip_from_req(req)?;
             CredStuffDetect::trigger(ip, &user.email, Some(&pwd)).await;
 
@@ -207,8 +214,9 @@ pub async fn post_authorize(
     // Webauthn overrides otp.
     // If we had a Resident Key authentication already, there is no need for another Webauthn
     // request.
-    let require_webauthn = !is_rk_authenticated && user.has_webauthn_enabled();
-    let require_otp = !require_webauthn && user.has_otp_enabled().await;
+    let require_webauthn =
+        !is_rk_authenticated && !practice_password && user.has_webauthn_enabled();
+    let require_otp = !practice_password && !require_webauthn && user.has_otp_enabled().await;
     if require_webauthn || require_otp {
         *user_needs_mfa = true;
     }
@@ -217,7 +225,11 @@ pub async fn post_authorize(
     // A resident key login has already completed its WebAuthn ceremony on this very session.
     if !is_rk_authenticated {
         session.is_mfa = false;
-        session.mfa_method = MfaMethod::None;
+        session.mfa_method = if practice_password {
+            MfaMethod::Password
+        } else {
+            MfaMethod::None
+        };
     }
 
     finish_authorize(
@@ -277,7 +289,11 @@ pub async fn post_authorize_refresh(
     // Preserve the existing refresh preference while making `force_mfa` impossible to bypass
     // with an older session that has no verified MFA.
     let renew_mfa = RauthyConfig::get().vars.lifetimes.session_renew_mfa
-        || (client.id != "rauthy" && client.force_mfa && !session.mfa_method.is_mfa());
+        || (client.id != "rauthy"
+            && client.force_mfa
+            && !session.mfa_method.is_mfa()
+            && !(session.mfa_method == MfaMethod::Password
+                && rauthy_data::entity::shared_devices::is_password_client(&client.id)));
     // Webauthn overrides otp
     let require_webauthn = user.has_webauthn_enabled() && renew_mfa;
     let require_otp = !require_webauthn && renew_mfa && user.has_otp_enabled().await;
@@ -535,6 +551,8 @@ pub(crate) async fn finish_authorize(
         // provider
         if data.pin_login {
             session.set_authenticated_with_pin(&user).await?;
+        } else if session.mfa_method == MfaMethod::Password {
+            session.set_authenticated_with_password(&user).await?;
         } else if is_provider_mfa {
             session
                 .set_authenticated_with_mfa(&user, MfaMethod::Provider)

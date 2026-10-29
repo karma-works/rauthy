@@ -1114,12 +1114,14 @@ pub async fn on_shared_device_login(
         MfaMethod::WebAuthn => SharedDeviceEventKind::PasskeyLogin,
         _ => SharedDeviceEventKind::OtherLogin,
     };
-    SharedDeviceEvent::create(
+    let role = crate::entity::practice_roles::for_session(session_id).await?;
+    SharedDeviceEvent::create_context(
         &device.practice_id,
         Some(device_id),
         Some(user_id),
         kind,
         ip,
+        role.as_ref().map(|r| r.role.as_str()),
     )
     .await?;
 
@@ -1320,6 +1322,7 @@ impl SharedDeviceEventKind {
 /// Security log per practice. No User-Agent, no location. Kept `EVENTS_RETENTION_DAYS`.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, FromPgRow)]
 pub struct SharedDeviceEvent {
+    pub role: Option<String>,
     pub id: String,
     pub practice_id: String,
     pub device_id: Option<String>,
@@ -1337,12 +1340,23 @@ impl SharedDeviceEvent {
         kind: SharedDeviceEventKind,
         ip: Option<&str>,
     ) -> Result<(), ErrorResponse> {
+        Self::create_context(practice_id, device_id, user_id, kind, ip, None).await
+    }
+
+    pub async fn create_context(
+        practice_id: &str,
+        device_id: Option<&str>,
+        user_id: Option<&str>,
+        kind: SharedDeviceEventKind,
+        ip: Option<&str>,
+        role: Option<&str>,
+    ) -> Result<(), ErrorResponse> {
         let id = get_rand(24);
         let now = Utc::now().timestamp();
         let kind = kind.as_str();
         let sql = "INSERT INTO shared_device_events \
-            (id, practice_id, device_id, user_id, kind, ip, created) \
-            VALUES ($1, $2, $3, $4, $5, $6, $7)";
+            (id, practice_id, device_id, user_id, kind, ip, created, role) \
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)";
         if is_hiqlite() {
             DB::hql()
                 .execute(
@@ -1354,14 +1368,24 @@ impl SharedDeviceEvent {
                         user_id.map(String::from),
                         kind,
                         ip.map(String::from),
-                        now
+                        now,
+                        role.map(String::from)
                     ),
                 )
                 .await?;
         } else {
             DB::pg_execute(
                 sql,
-                &[&id, &practice_id, &device_id, &user_id, &kind, &ip, &now],
+                &[
+                    &id,
+                    &practice_id,
+                    &device_id,
+                    &user_id,
+                    &kind,
+                    &ip,
+                    &now,
+                    &role,
+                ],
             )
             .await?;
         }
@@ -1387,6 +1411,7 @@ impl SharedDeviceEvent {
     }
 
     pub async fn cleanup() -> Result<usize, ErrorResponse> {
+        crate::entity::practice_roles::cleanup_expired_locks().await?;
         let threshold = Utc::now().timestamp() - EVENTS_RETENTION_DAYS * 24 * 3600;
         let sql = "DELETE FROM shared_device_events WHERE created < $1";
         let rows = if is_hiqlite() {
@@ -1472,4 +1497,9 @@ mod tests {
         assert!(!verify_signature(&public, b"other", sig.as_ref()));
         assert!(validate_public_key(&public[1..]).is_err());
     }
+}
+
+/// Explicitly configured practice clients only. Does not change the operator or admin client.
+pub fn is_password_client(client: &str) -> bool {
+    RauthyConfig::get().vars.shared_devices.password_login && is_pin_client(client)
 }

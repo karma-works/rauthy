@@ -1401,6 +1401,7 @@ Your account has not been compromised and no data was leaked."#.into()),
             },
             atproto: VarsAtproto { enable: false },
             shared_devices: VarsSharedDevices {
+                password_login: false,
                 enable: false,
                 client_ids: Vec::new(),
             },
@@ -1570,6 +1571,14 @@ impl Vars {
             self.shared_devices.client_ids = v;
         }
 
+        if let Some(v) = t_bool(
+            &mut table,
+            "shared_devices",
+            "password_login",
+            "SHARED_DEVICES_PASSWORD_LOGIN",
+        ) {
+            self.shared_devices.password_login = v;
+        }
         check_table_empty(table, "shared_devices");
     }
 
@@ -5151,6 +5160,8 @@ impl FromStr for PasskeyRegType {
 /// Registered shared devices with a PIN login, see `entity::shared_devices`.
 #[derive(Debug)]
 pub struct VarsSharedDevices {
+    /// Explicit alternative password login, limited to shared-device clients.
+    pub password_login: bool,
     pub enable: bool,
     /// Only these clients accept a PIN, and only for them a PIN satisfies `force_mfa`.
     pub client_ids: Vec<String>,

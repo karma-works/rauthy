@@ -70,6 +70,8 @@ pub enum MfaMethod {
     /// A PIN on a registered shared device, see `entity::shared_devices`. It is no MFA, but
     /// satisfies `force_mfa` for the clients in `shared_devices.client_ids`.
     Pin,
+    /// Explicit password login for configured practice clients, never MFA.
+    Password,
     /// The pre-tracking `is_mfa` flag. It was set before the 2nd factor ceremony had finished,
     /// and also after a factor enrollment, so it is not a reliable proof and is never accepted
     /// as MFA. Only kept to be able to parse rows written by an older version.
@@ -85,6 +87,7 @@ impl MfaMethod {
             Self::Otp => "otp",
             Self::Provider => "provider",
             Self::Pin => "pin",
+            Self::Password => "password",
             Self::Legacy => "mfa",
         }
     }
@@ -96,7 +99,7 @@ impl MfaMethod {
 
     /// Maps anything that is no verified ceremony, like `Legacy`, to `None`.
     pub const fn verified_or_none(self) -> Self {
-        if self.is_mfa() || matches!(self, Self::Pin) {
+        if self.is_mfa() || matches!(self, Self::Pin | Self::Password) {
             self
         } else {
             Self::None
@@ -114,6 +117,7 @@ impl FromStr for MfaMethod {
             "otp" => Ok(Self::Otp),
             "provider" => Ok(Self::Provider),
             "pin" => Ok(Self::Pin),
+            "password" => Ok(Self::Password),
             "mfa" => Ok(Self::Legacy),
             _ => Err(ErrorResponse::new(
                 ErrorResponseType::Internal,
@@ -630,6 +634,17 @@ WHERE sessions.exp > $14"#;
         };
 
         Ok(res)
+    }
+
+    pub async fn set_authenticated_with_password(
+        &mut self,
+        user: &User,
+    ) -> Result<(), ErrorResponse> {
+        self.bind_user(user)?;
+        self.is_mfa = false;
+        self.mfa_method = MfaMethod::Password;
+        self.update_authenticated().await?;
+        self.after_shared_device_login().await
     }
 
     #[inline]
