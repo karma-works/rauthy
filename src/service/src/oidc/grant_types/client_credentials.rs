@@ -16,14 +16,10 @@ pub async fn grant_type_credentials(
     req: HttpRequest,
     req_data: TokenRequest,
 ) -> Result<(TokenSet, Vec<(HeaderName, HeaderValue)>), ErrorResponse> {
-    if req_data.client_secret.is_none() {
-        return Err(ErrorResponse::new(
-            ErrorResponseType::BadRequest,
-            "'client_secret' is missing",
-        ));
-    }
-
     let (client_id, client_secret) = req_data.try_get_client_id_secret(&req)?;
+    let secret = client_secret.ok_or_else(|| {
+        ErrorResponse::new(ErrorResponseType::BadRequest, "'client_secret' is missing")
+    })?;
     let client = Client::find(client_id).await?;
     client.validate_enabled()?;
     if !client.confidential {
@@ -32,9 +28,6 @@ pub async fn grant_type_credentials(
             "'client_credentials' flow is allowed for confidential clients only",
         ));
     }
-    let secret = client_secret.ok_or_else(|| {
-        ErrorResponse::new(ErrorResponseType::BadRequest, "'client_secret' is missing")
-    })?;
     client.validate_secret(secret, &req).await?;
     client.validate_flow(GrantType::ClientCredentials)?;
     let header_origin = client.get_validated_origin_header(&req)?;
