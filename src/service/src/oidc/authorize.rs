@@ -281,6 +281,13 @@ pub async fn post_authorize_refresh(
     // Webauthn overrides otp
     let require_webauthn = user.has_webauthn_enabled() && renew_mfa;
     let require_otp = !require_webauthn && renew_mfa && user.has_otp_enabled().await;
+    // With renewal disabled, preserve the verified upstream receipt for the normal client
+    // checks instead of asking whether this provider-only account enrolled a local factor.
+    let provider_mfa_login = if !renew_mfa && session.mfa_method == MfaMethod::Provider {
+        Some(ProviderMfaLogin::Yes)
+    } else {
+        None
+    };
 
     finish_authorize(
         user,
@@ -303,7 +310,7 @@ pub async fn post_authorize_refresh(
             pin_login: false,
         },
         None,
-        None,
+        provider_mfa_login,
     )
     .await
 }
@@ -389,6 +396,11 @@ pub(crate) async fn finish_authorize(
     provider_mfa_login: Option<ProviderMfaLogin>,
 ) -> Result<AuthStep, ErrorResponse> {
     let is_provider_mfa = provider_mfa_login == Some(ProviderMfaLogin::Yes);
+    client.validate_auth_source(if is_provider_mfa {
+        MfaMethod::Provider
+    } else {
+        session.mfa_method
+    })?;
     client.validate_enabled()?;
     client
         .validate_mfa(&user, provider_mfa_login)

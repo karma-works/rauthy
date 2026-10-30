@@ -756,6 +756,7 @@ impl TokenSet {
         device_code_flow: DeviceCodeFlow,
         mfa_method: MfaMethod,
     ) -> Result<Self, ErrorResponse> {
+        client.validate_auth_source(mfa_method)?;
         let scopes = scopes.map(|s| s.0);
         let scope = match scopes.as_deref() {
             Some(s) => Cow::Borrowed(s),
