@@ -272,7 +272,6 @@ pub async fn cookie_csrf_headers_from_res(res: Response) -> Result<HeaderMap, Bo
     for cookie in res.headers().get_all(header::SET_COOKIE) {
         let (cookie, _) = cookie.to_str()?.split_once(';').unwrap();
         if cookie.starts_with("__Host-RauthySession=") {
-            println!("Extracted session cookie: {:?}", cookie);
             let mut headers = HeaderMap::new();
             headers.append(header::COOKIE, HeaderValue::from_str(cookie)?);
 
@@ -281,7 +280,6 @@ pub async fn cookie_csrf_headers_from_res(res: Response) -> Result<HeaderMap, Bo
                 .split_once("<template id=\"tpl_csrf_token\">")
                 .unwrap();
             let (csrf_token, _) = content_split.split_once("</template>").unwrap();
-            println!("Extracted CSRF Token: {}", csrf_token);
             headers.append(CSRF_HEADER, HeaderValue::from_str(csrf_token)?);
 
             return Ok(headers);
@@ -297,7 +295,6 @@ fn location_url(res: &Response) -> Result<reqwest::Url, Box<dyn Error>> {
         .get(header::LOCATION)
         .ok_or("missing Location header")?
         .to_str()?;
-    println!("Location Header: {}", loc_header);
 
     let url = reqwest::Url::parse(loc_header)?;
     if url.fragment().is_some() {
