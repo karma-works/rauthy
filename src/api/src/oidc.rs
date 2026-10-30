@@ -220,17 +220,27 @@ pub async fn get_authorize(
     templates.push(HtmlTemplate::PasskeyRegType);
     templates.push(HtmlTemplate::LegalLinks);
     templates.push(HtmlTemplate::LoginLayout(login_layout));
+    templates.push(HtmlTemplate::PracticePassword(
+        shared_devices::is_password_client(&client.id),
+    ));
     templates.push(HtmlTemplate::RecoveryCodes);
     if let Some(device) = &shared_device {
         let practice = SharedDevicePractice::find(&device.practice_id).await?;
         // `max_age` asks for a fresh passkey, like for critical actions.
         let pin = is_pin_client(&client.id) && params.max_age.is_none();
-        templates.push(HtmlTemplate::SharedDevice(shared_devices::template_json(
-            &device.label,
-            &practice.name,
-            device.is_locked(),
-            pin,
-        )));
+        let roles_enabled =
+            rauthy_data::entity::practice_roles::enabled(&device.practice_id).await?;
+        let template =
+            shared_devices::template_json(&device.label, &practice.name, device.is_locked(), pin);
+        let mut template: serde_json::Value = serde_json::from_str(&template)?;
+        template["roles_enabled"] = serde_json::json!(roles_enabled);
+        templates.push(HtmlTemplate::SharedDevice(
+            template
+                .to_string()
+                .replace('<', "\\u003c")
+                .replace('>', "\\u003e")
+                .replace('&', "\\u0026"),
+        ));
     }
     if RauthyConfig::get().vars.atproto.enable {
         let provider_atproto = AuthProvider::find_by_iss(PROVIDER_ATPROTO.to_string()).await?;

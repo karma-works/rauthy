@@ -220,6 +220,8 @@ impl TokenSet {
             None
         };
 
+        let role_claims =
+            practice_role_claims(sid.as_ref(), shared_devices::is_pin_client(&client.id)).await?;
         let issued_token =
             IssuedToken::create(user_id, did.as_deref(), sid.map(|sid| sid.0), exp).await?;
 
@@ -338,6 +340,10 @@ impl TokenSet {
             }
         }
 
+        claims_new_impl
+            .custom_flattened
+            .get_or_insert_with(HashMap::new)
+            .extend(role_claims);
         let key_pair_alg = JwkKeyPairAlg::from_str(&client.access_token_alg)?;
         let kp = JwkKeyPair::find_latest(key_pair_alg).await?;
         let token = JwtToken::build(&kp, &claims_new_impl, JwtHeaderType::AtJwt)?;
@@ -506,6 +512,13 @@ impl TokenSet {
             }
         }
 
+        claims
+            .custom_flattened
+            .get_or_insert_with(HashMap::new)
+            .extend(
+                practice_role_claims(sid.as_ref(), shared_devices::is_pin_client(&client.id))
+                    .await?,
+            );
         let key_pair_alg = JwkKeyPairAlg::from_str(&client.id_token_alg)?;
         let kp = JwkKeyPair::find_latest(key_pair_alg).await?;
         JwtToken::build(&kp, &claims, JwtHeaderType::Jwt)
@@ -552,10 +565,17 @@ impl TokenSet {
             && let Ok(session) = Session::find(sid.0.clone()).await
             && let Some(device_id) = &session.shared_device_id
         {
+            let role_mode = rauthy_data::entity::practice_roles::for_session(&sid.0)
+                .await?
+                .is_some();
             let idle = shared_devices::idle_timeout_for_device(device_id)
                 .await
                 .unwrap_or(shared_devices::IDLE_TIMEOUT_MIN);
-            exp = exp.min(nbf.timestamp() + idle).min(session.exp);
+            exp = if role_mode {
+                exp.min(session.exp)
+            } else {
+                exp.min(nbf.timestamp() + idle).min(session.exp)
+            };
         }
 
         let token = {
@@ -920,8 +940,41 @@ fn amr_for(mfa_method: MfaMethod) -> JwtAmrValue {
         MfaMethod::WebAuthn | MfaMethod::Provider => JwtAmrValue::Mfa,
         MfaMethod::Otp => JwtAmrValue::Otp,
         MfaMethod::Pin => JwtAmrValue::Pin,
-        MfaMethod::None | MfaMethod::Legacy => JwtAmrValue::Pwd,
+        MfaMethod::None | MfaMethod::Legacy | MfaMethod::Password => JwtAmrValue::Pwd,
     }
+}
+
+async fn practice_role_claims(
+    sid: Option<&SessionId>,
+    practice_client: bool,
+) -> Result<HashMap<String, serde_json::Value>, ErrorResponse> {
+    let mut claims = HashMap::new();
+    // A coupled browser must not bind an operator or unrelated client's MFA login to a practice.
+    if !practice_client {
+        return Ok(claims);
+    }
+    if let Some(sid) = sid {
+        let session = Session::find(sid.0.clone()).await?;
+        if session.shared_device_id.is_some() {
+            claims.insert("aa_shared_session".to_string(), serde_json::json!(sid.0));
+            let device = shared_devices::SharedDevice::find(
+                session.shared_device_id.as_deref().unwrap_or_default(),
+            )
+            .await?;
+            claims.insert(
+                "aa_practice_id".to_string(),
+                serde_json::json!(device.practice_id),
+            );
+            if let Some(role) = rauthy_data::entity::practice_roles::for_session(&sid.0).await? {
+                claims.insert("aa_practice_role".to_string(), serde_json::json!(role.role));
+                claims.insert(
+                    "aa_practice_id".to_string(),
+                    serde_json::json!(role.practice_id),
+                );
+            }
+        }
+    }
+    Ok(claims)
 }
 
 #[cfg(test)]

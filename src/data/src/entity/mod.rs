@@ -75,3 +75,5 @@ pub async fn is_db_alive() -> bool {
         DB::pg_query_one_row("SELECT 1", &[]).await.is_ok()
     }
 }
+
+pub mod practice_roles;

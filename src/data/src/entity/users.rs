@@ -1388,7 +1388,8 @@ LIMIT $2"#;
                 RauthyConfig::get()
                     .vars
                     .webauthn
-                    .passkey_accounts_no_password,
+                    .passkey_accounts_no_password
+                    && !RauthyConfig::get().vars.shared_devices.password_login,
             ) {
                 return Err(ErrorResponse::new(
                     ErrorResponseType::BadRequest,
@@ -1396,6 +1397,15 @@ LIMIT $2"#;
                 ));
             }
 
+            if RauthyConfig::get().vars.shared_devices.password_login
+                && user.has_webauthn_enabled()
+                && upd_user.mfa_code.is_none()
+            {
+                return Err(ErrorResponse::new(
+                    ErrorResponseType::Forbidden,
+                    "Confirm password change with your passkey",
+                ));
+            }
             if let Some(pwd_curr) = upd_user.password_current {
                 user.validate_password(pwd_curr).await?;
             } else if let Some(mfa_code) = upd_user.mfa_code {

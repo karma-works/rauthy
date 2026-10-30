@@ -42,6 +42,7 @@
     const PIN_LEN = 4;
 
     let pin = $state('');
+    let role = $state('staff');
     let err = $state('');
     let busy = $state(false);
     // svelte-ignore state_referenced_locally
@@ -100,6 +101,7 @@
 
         const payload: PinLoginRequest = {
             ...loginParams(),
+            role: device.roles_enabled ? role : undefined,
             pin,
             challenge_id: ch.body.id,
             signature,
@@ -119,7 +121,11 @@
         }
         const e = res.error as undefined | PinLoginErrorResponse;
         if (res.status === 423 || e?.error === 'locked') {
-            locked = true;
+            if (device.roles_enabled) {
+                err = 'Diese Rolle ist auf diesem Gerät für fünf Minuten gesperrt.';
+            } else {
+                locked = true;
+            }
         } else if (e?.error === 'wrong_pin') {
             err = t.sharedDevice.wrongPin.replace('{n}', String(e.remaining ?? 0));
         } else if (e?.error === 'invalid_device') {
@@ -143,7 +149,7 @@
         <h1 id="pin-title">{t.sharedDevice.pinTitle}</h1>
         <p class="device">{clientName} · {device.label} · {device.practice}</p>
 
-        {#if locked}
+        {#if locked && !device.roles_enabled}
             <div class="locked" role="alert">
                 <p>{t.sharedDevice.locked}</p>
             </div>
@@ -153,6 +159,23 @@
             </button>
         {:else if device.pin}
             <form novalidate onsubmit={onSubmit}>
+                {#if device.roles_enabled}
+                    <label for="practice-role">Rolle wählen</label>
+                    <select
+                        id="practice-role"
+                        bind:value={role}
+                        disabled={busy}
+                        onchange={() => {
+                            pin = '';
+                            err = '';
+                            locked = false;
+                        }}
+                    >
+                        <option value="staff">Praxismitarbeit</option>
+                        <option value="management">Praxismanagement</option>
+                        <option value="administration">Praxisadministration</option>
+                    </select>
+                {/if}
                 <label for="shared-device-pin">{t.sharedDevice.pinLabel}</label>
                 <input
                     bind:this={refInput}

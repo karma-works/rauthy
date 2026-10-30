@@ -1408,7 +1408,12 @@ impl Client {
     pub fn validate_mfa_method(&self, method: MfaMethod) -> Result<(), ErrorResponse> {
         // A PIN on a registered shared device counts only for the clients that accept it.
         let pin_ok = method == MfaMethod::Pin && shared_devices::is_pin_client(&self.id);
-        if self.id != "rauthy" && self.force_mfa && !method.is_mfa() && !pin_ok {
+        if self.id != "rauthy"
+            && self.force_mfa
+            && !method.is_mfa()
+            && !pin_ok
+            && !(method == MfaMethod::Password && shared_devices::is_password_client(&self.id))
+        {
             trace!("MFA required for this client but the session has no verified MFA");
             Err(ErrorResponse::new(
                 ErrorResponseType::MfaRequired,

@@ -22,6 +22,7 @@ use rauthy_data::api_cookie::ApiCookie;
 use rauthy_data::entity::api_keys::{AccessGroup, AccessRights};
 use rauthy_data::entity::auth_providers::NewFederatedUserCreated;
 use rauthy_data::entity::mfa_mod_token::MfaModToken;
+use rauthy_data::entity::practice_roles::{self, PracticeRole};
 use rauthy_data::entity::refresh_tokens::RefreshToken;
 use rauthy_data::entity::sessions::SessionState;
 use rauthy_data::entity::shared_devices::{
@@ -92,6 +93,7 @@ async fn practice_response(
         })
         .collect();
     Ok(SharedDevicePracticeResponse {
+        role_mode: practice_roles::enabled(&practice.id).await?,
         notify_user_ids: practice
             .notify_user_ids()
             .into_iter()
@@ -309,6 +311,7 @@ pub async fn get_practice_events(
         .await?
         .into_iter()
         .map(|e| SharedDeviceEventResponse {
+            role: e.role,
             id: e.id,
             device_id: e.device_id,
             user_id: e.user_id,
@@ -355,8 +358,21 @@ pub async fn post_practice_registration(
     validate_practice_id(&id)?;
 
     SharedDevicePractice::find(&id).await?;
+    if practice_roles::enabled(&id).await? {
+        for role in practice_roles::ROLES {
+            if PracticeRole::find(&id, role)
+                .await?
+                .is_none_or(|r| r.pin_hmac.is_none())
+            {
+                return Err(ErrorResponse::new(
+                    ErrorResponseType::BadRequest,
+                    "Configure all three role PINs before coupling",
+                ));
+            }
+        }
+    }
     let user = User::find(payload.user_id).await?;
-    if !user.has_webauthn_enabled() {
+    if !user.has_webauthn_enabled() && !RauthyConfig::get().vars.shared_devices.password_login {
         return Err(ErrorResponse::new(
             ErrorResponseType::BadRequest,
             "The user needs a passkey to register a device",
@@ -507,6 +523,7 @@ pub async fn get_registration(
             practice_name: practice.name,
             label: reg.label,
             needs_risk_ack: practice.risk_ack_at.is_none(),
+            password_allowed: RauthyConfig::get().vars.shared_devices.password_login,
             return_uri: reg.return_uri,
             exp: reg.exp,
         }),
@@ -548,10 +565,27 @@ pub async fn post_registration(
     let session = principal.validate_session_auth()?.clone();
 
     let ip = real_ip_from_req(&req)?;
-    let token = MfaModToken::find(&payload.mfa_mod_token_id).await?;
-    token.validate(&reg.user_id, ip)?;
+    let token = if let Some(password) = payload.password.as_ref() {
+        if !RauthyConfig::get().vars.shared_devices.password_login {
+            return Err(ErrorResponse::new(
+                ErrorResponseType::Forbidden,
+                "Password login disabled",
+            ));
+        }
+        practice_roles::validate_account_password(
+            &User::find(reg.user_id.clone()).await?,
+            password.clone(),
+        )
+        .await?;
+        None
+    } else {
+        let token =
+            MfaModToken::find(payload.mfa_mod_token_id.as_deref().unwrap_or_default()).await?;
+        token.validate(&reg.user_id, ip)?;
+        Some(token)
+    };
     let user = User::find(reg.user_id.clone()).await?;
-    // A password must never be enough to register a device.
+    // Keep the account passkey even when it confirms this coupling with its password.
     if !user.has_webauthn_enabled() {
         return Err(ErrorResponse::new(
             ErrorResponseType::BadRequest,
@@ -577,7 +611,9 @@ pub async fn post_registration(
         ));
     }
 
-    token.delete().await?;
+    if let Some(token) = token {
+        token.delete().await?;
+    }
     reg.delete().await?;
 
     if let Some(old) = SharedDevice::from_req(&req).await? {
@@ -761,31 +797,94 @@ pub async fn post_authorize_pin(
     }
 
     device.check_ip(&ip).await?;
-    let Some(attempt) = device.reserve_attempt(&ip).await? else {
-        return Ok(pin_error(StatusCode::LOCKED, "locked", None));
-    };
-
-    // The PIN of a disabled or expired account counts like a wrong one.
-    let user = match SharedDeviceMember::find_by_pin(&device.practice_id, &payload.pin).await? {
-        Some(user_id) => User::find(user_id)
-            .await
-            .ok()
-            .filter(|u| u.check_enabled().is_ok() && u.check_expired().is_ok()),
-        None => None,
-    };
-    let Some(user) = user else {
-        device.wrong_pin(attempt, &ip).await?;
-        return if attempt >= PIN_MAX_FAILURES {
-            Ok(pin_error(StatusCode::LOCKED, "locked", None))
-        } else {
-            Ok(pin_error(
-                StatusCode::UNAUTHORIZED,
-                "wrong_pin",
-                Some(PIN_MAX_FAILURES - attempt),
-            ))
+    let selected_role = payload.role.clone();
+    let user = if let Some(role) = selected_role.as_deref() {
+        practice_roles::validate_role(role)?;
+        if !practice_roles::enabled(&device.practice_id).await? {
+            return Err(ErrorResponse::new(
+                ErrorResponseType::Forbidden,
+                "Role mode disabled",
+            ));
+        }
+        let Some(attempt) = practice_roles::reserve(&device.id, role).await? else {
+            return Ok(pin_error(StatusCode::LOCKED, "locked", None));
         };
+        let configured = PracticeRole::find(&device.practice_id, role).await?;
+        let pin_version = configured
+            .as_ref()
+            .map(|r| r.pin_version)
+            .unwrap_or_default();
+        let user = if let Some(configured) = configured {
+            if configured.matches(&payload.pin)? {
+                User::find(configured.user_id)
+                    .await
+                    .ok()
+                    .filter(|u| u.check_enabled().is_ok() && u.check_expired().is_ok())
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        practice_roles::finish_attempt(&device.id, role, user.is_some()).await?;
+        let Some(user) = user else {
+            SharedDeviceEvent::create_context(
+                &device.practice_id,
+                Some(&device.id),
+                None,
+                SharedDeviceEventKind::PinFailed,
+                Some(&ip),
+                Some(role),
+            )
+            .await?;
+            return Ok(if attempt >= PIN_MAX_FAILURES {
+                pin_error(StatusCode::LOCKED, "locked", None)
+            } else {
+                pin_error(
+                    StatusCode::UNAUTHORIZED,
+                    "wrong_pin",
+                    Some(PIN_MAX_FAILURES - attempt),
+                )
+            });
+        };
+        practice_roles::bind(&session.id, &device.practice_id, role, pin_version).await?;
+        user
+    } else {
+        // Once role mode is enabled, personal PINs cannot bypass the selected role.
+        if practice_roles::enabled(&device.practice_id).await? {
+            return Err(ErrorResponse::new(
+                ErrorResponseType::Forbidden,
+                "Select a practice role",
+            ));
+        }
+        let Some(attempt) = device.reserve_attempt(&ip).await? else {
+            return Ok(pin_error(StatusCode::LOCKED, "locked", None));
+        };
+
+        // The PIN of a disabled or expired account counts like a wrong one.
+        let user = match SharedDeviceMember::find_by_pin(&device.practice_id, &payload.pin).await? {
+            Some(user_id) => User::find(user_id)
+                .await
+                .ok()
+                .filter(|u| u.check_enabled().is_ok() && u.check_expired().is_ok()),
+            None => None,
+        };
+        let Some(user) = user else {
+            device.wrong_pin(attempt, &ip).await?;
+            return if attempt >= PIN_MAX_FAILURES {
+                Ok(pin_error(StatusCode::LOCKED, "locked", None))
+            } else {
+                Ok(pin_error(
+                    StatusCode::UNAUTHORIZED,
+                    "wrong_pin",
+                    Some(PIN_MAX_FAILURES - attempt),
+                ))
+            };
+        };
+        device.release_attempt(&ip).await?;
+
+        user
     };
-    device.release_attempt(&ip).await?;
 
     let auth_step = authorize::post_authorize_pin(&req, payload, session, user).await?;
     let mut resp = map_auth_step(auth_step, &req, NewFederatedUserCreated::No).await?;
@@ -901,4 +1000,138 @@ pub async fn post_user_pin(
     info!(user_id = id, practice_id, "new shared device PIN");
 
     Ok(no_store(&mut HttpResponse::Ok()).json(SharedDevicePinResponse { pin }))
+}
+
+// The application backend performs tenant authorization; these paths additionally require
+// the same narrowly scoped API key as existing shared-device administration.
+#[derive(serde::Deserialize)]
+pub struct RoleSetup {
+    user_id: String,
+}
+
+#[put("/shared_devices/practices/{id}/roles")]
+pub async fn enable_roles(
+    path: web::Path<String>,
+    principal: ReqPrincipal,
+    Json(body): Json<RoleSetup>,
+) -> Result<HttpResponse, ErrorResponse> {
+    check_enabled()?;
+    principal
+        .validate_api_key_or_admin_session(AccessGroup::SharedDevices, AccessRights::Update)?;
+    let practice = path.into_inner();
+    validate_practice_id(&practice)?;
+    SharedDevicePractice::find(&practice).await?;
+    let user = User::find(body.user_id).await?;
+    user.check_enabled()?;
+    if !user.has_webauthn_enabled()
+        || SharedDeviceMember::find(&practice, &user.id)
+            .await?
+            .is_none()
+    {
+        return Err(ErrorResponse::new(
+            ErrorResponseType::Forbidden,
+            "Practice account requires membership and passkey",
+        ));
+    }
+    PracticeRole::enable(&practice, &user.id).await?;
+    Ok(HttpResponse::NoContent().finish())
+}
+
+#[get("/shared_devices/practices/{id}/roles")]
+pub async fn get_roles(
+    path: web::Path<String>,
+    principal: ReqPrincipal,
+) -> Result<HttpResponse, ErrorResponse> {
+    check_enabled()?;
+    principal.validate_api_key_or_admin_session(AccessGroup::SharedDevices, AccessRights::Read)?;
+    let practice = path.into_inner();
+    let mut result = Vec::new();
+    for role in practice_roles::ROLES {
+        let configured = PracticeRole::find(&practice, role).await?;
+        result.push(serde_json::json!({"role": role, "enabled": practice_roles::enabled(&practice).await? && configured.is_some(),
+            "has_pin": configured.is_some_and(|c| c.pin_hmac.is_some())}));
+    }
+    Ok(no_store(&mut HttpResponse::Ok()).json(result))
+}
+
+// No Debug: neither password nor PIN may be logged.
+#[derive(serde::Deserialize)]
+pub struct RolePinChange {
+    user_id: String,
+    pin: String,
+    session_id: Option<String>,
+    password: Option<String>,
+}
+
+#[put("/shared_devices/practices/{id}/roles/{role}/pin")]
+pub async fn set_role_pin(
+    path: web::Path<(String, String)>,
+    principal: ReqPrincipal,
+    Json(body): Json<RolePinChange>,
+) -> Result<HttpResponse, ErrorResponse> {
+    check_enabled()?;
+    principal
+        .validate_api_key_or_admin_session(AccessGroup::SharedDevices, AccessRights::Update)?;
+    let (practice, role) = path.into_inner();
+    let configured = PracticeRole::find(&practice, &role)
+        .await?
+        .ok_or_else(|| ErrorResponse::new(ErrorResponseType::NotFound, "Role unavailable"))?;
+    if configured.user_id != body.user_id {
+        return Err(ErrorResponse::new(
+            ErrorResponseType::Forbidden,
+            "Wrong practice account",
+        ));
+    }
+    if let Some(session) = body.session_id {
+        let live = practice_roles::live_session(&session).await?;
+        if live["practice_id"] != practice
+            || live["role"] != role
+            || live["user_id"] != body.user_id
+        {
+            return Err(ErrorResponse::new(
+                ErrorResponseType::Forbidden,
+                "Only the active role can change its PIN",
+            ));
+        }
+    } else {
+        let password = body.password.ok_or_else(|| {
+            ErrorResponse::new(ErrorResponseType::Forbidden, "Confirm account password")
+        })?;
+        practice_roles::validate_account_password(&User::find(body.user_id).await?, password)
+            .await?;
+    }
+    configured.set_pin(&body.pin).await?;
+    SharedDeviceEvent::create_context(
+        &practice,
+        None,
+        Some(&configured.user_id),
+        SharedDeviceEventKind::PinChanged,
+        None,
+        Some(&role),
+    )
+    .await?;
+    Ok(no_store(&mut HttpResponse::NoContent()).finish())
+}
+
+#[get("/shared_devices/sessions/{id}")]
+pub async fn get_live_session(
+    path: web::Path<String>,
+    principal: ReqPrincipal,
+) -> Result<HttpResponse, ErrorResponse> {
+    check_enabled()?;
+    principal.validate_api_key_or_admin_session(AccessGroup::SharedDevices, AccessRights::Read)?;
+    Ok(no_store(&mut HttpResponse::Ok())
+        .json(practice_roles::live_session(&path.into_inner()).await?))
+}
+
+#[delete("/shared_devices/practices/{id}/roles")]
+pub async fn disable_roles(
+    path: web::Path<String>,
+    principal: ReqPrincipal,
+) -> Result<HttpResponse, ErrorResponse> {
+    check_enabled()?;
+    principal
+        .validate_api_key_or_admin_session(AccessGroup::SharedDevices, AccessRights::Update)?;
+    practice_roles::disable(&path.into_inner()).await?;
+    Ok(HttpResponse::NoContent().finish())
 }

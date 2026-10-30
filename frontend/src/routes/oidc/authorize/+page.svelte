@@ -155,6 +155,7 @@
 
     let email = $state(useParam('login_hint').get() || '');
     let password = $state('');
+    let practicePassword = $state(false);
     let showPasswordInput = $derived(
         needsPassword && existingMfaUser !== email && !showReset && !isAtproto,
     );
@@ -339,6 +340,8 @@
     }
 
     function onPasskeyDiscover() {
+        needsPassword = false;
+        password = '';
         passkeyHints = undefined;
         mfaKind = 'webauthn';
         mfaPurpose = 'Discover';
@@ -351,6 +354,8 @@
      * belongs to the given E-Mail.
      */
     function onSplitLogin(card: SplitCard) {
+        needsPassword = false;
+        password = '';
         err = '';
         passkeyDiscoverErr = '';
         splitCard = card;
@@ -413,7 +418,7 @@
             payload.resource = resource;
         }
 
-        if (needsPassword && email !== existingMfaUser) {
+        if (needsPassword && !residentKeyToken && email !== existingMfaUser) {
             if (!password) {
                 err = t.authorize.passwordRequired;
                 isLoading = false;
@@ -697,6 +702,7 @@
 <Template id={TPL_IS_REG_OPEN} bind:value={isRegOpen} />
 <Template id={TPL_PASSKEY_REG_TYPE} bind:value={passkeyRegType} />
 <Template id={TPL_LOGIN_LAYOUT} bind:value={loginLayout} />
+<Template id="tpl_practice_password" bind:value={practicePassword} />
 <Template id={TPL_RECOVERY_CODES} bind:value={recoveryEnabled} />
 <Template id={TPL_SHARED_DEVICE} bind:value={sharedDevice} />
 
@@ -770,6 +776,14 @@
                 errRecoveryLink={!!err && err === passkeyUnknownErr}
                 onExisting={() => onSplitLogin('existing')}
                 onNew={() => onSplitLogin('new')}
+                passwordEnabled={practicePassword}
+                bind:password
+                onPassword={() => {
+                    needsPassword = true;
+                    splitCard = 'password';
+                    onSubmit();
+                }}
+                errPassword={splitCard === 'password' ? err : ''}
             />
             <div class="splitFooter">
                 <LegalLinks />

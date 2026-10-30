@@ -68,6 +68,7 @@ pub struct SharedDevicePracticeRequest {
 #[derive(Debug, Serialize, ToSchema)]
 #[cfg_attr(debug_assertions, derive(Deserialize))]
 pub struct SharedDevicePracticeResponse {
+    pub role_mode: bool,
     pub id: String,
     pub name: String,
     pub idle_timeout: i64,
@@ -154,6 +155,7 @@ pub struct SharedDeviceRegistrationInfoResponse {
     pub label: String,
     /// The first device of a practice needs the residual risk notice to be confirmed
     pub needs_risk_ack: bool,
+    pub password_allowed: bool,
     pub return_uri: Option<String>,
     pub exp: i64,
 }
@@ -164,7 +166,9 @@ pub struct SharedDeviceRegistrationInfoResponse {
 pub struct SharedDeviceRegisterRequest {
     /// A fresh `MfaModToken` from a passkey of this user, see `POST /users/{id}/mfa_token`
     #[validate(length(min = 32, max = 32))]
-    pub mfa_mod_token_id: String,
+    pub mfa_mod_token_id: Option<String>,
+    /// Alternative explicit account password confirmation. Never logged.
+    pub password: Option<String>,
     /// The browser's ECDSA P-256 public key, uncompressed point, base64url without padding
     #[validate(length(min = 1, max = 128), custom(function = "validate_b64url"))]
     pub public_key: String,
@@ -204,6 +208,8 @@ pub struct SharedDeviceTemplate<'a> {
 #[derive(Deserialize, Validate, ToSchema)]
 #[cfg_attr(debug_assertions, derive(Serialize))]
 pub struct PinLoginRequest {
+    /// Optional practice-wide role; absent preserves personal PIN mode.
+    pub role: Option<String>,
     /// Validation: 4 digits
     #[validate(custom(function = "validate_pin"))]
     pub pin: String,
@@ -294,6 +300,7 @@ pub struct SharedDeviceEventsParams {
 #[derive(Debug, Serialize, ToSchema)]
 #[cfg_attr(debug_assertions, derive(Deserialize))]
 pub struct SharedDeviceEventResponse {
+    pub role: Option<String>,
     pub id: String,
     pub device_id: Option<String>,
     pub user_id: Option<String>,

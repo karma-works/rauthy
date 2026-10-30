@@ -5,6 +5,7 @@ export interface SharedDeviceTemplate {
     locked: boolean;
     /** `false` if this client accepts no PIN, or the request asks for a fresh passkey */
     pin: boolean;
+    roles_enabled?: boolean;
 }
 
 export interface SharedDeviceChallengeResponse {
@@ -13,6 +14,7 @@ export interface SharedDeviceChallengeResponse {
 }
 
 export interface PinLoginRequest {
+    role?: string;
     pin: string;
     challenge_id: string;
     signature: string;
@@ -36,12 +38,14 @@ export interface SharedDeviceRegistrationInfoResponse {
     practice_name: string;
     label: string;
     needs_risk_ack: boolean;
+    password_allowed?: boolean;
     return_uri?: string;
     exp: number;
 }
 
 export interface SharedDeviceRegisterRequest {
-    mfa_mod_token_id: string;
+    mfa_mod_token_id?: string;
+    password?: string;
     public_key: string;
     signature: string;
     risk_ack: boolean;
