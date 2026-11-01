@@ -785,6 +785,18 @@
                 }}
                 errPassword={splitCard === 'password' ? err : ''}
             />
+            {#if fwda && providers.length > 0}
+                <div class="forwardAuthProviders flex-col gap-05">
+                    {#each providers as provider (provider.id)}
+                        <ButtonAuthProvider
+                            ariaLabel={`Login: ${provider.name}`}
+                            {provider}
+                            onclick={isProviderAtProto(provider.id) ? toggleAtproto : providerLogin}
+                            {isLoading}
+                        />
+                    {/each}
+                </div>
+            {/if}
             <div class="splitFooter">
                 <LegalLinks />
             </div>
@@ -1118,6 +1130,11 @@
 
     .name {
         margin: 0 0.5rem;
+    }
+
+    .forwardAuthProviders {
+        width: min(100%, 28rem);
+        margin-inline: auto;
     }
 
     .providersSeparator {

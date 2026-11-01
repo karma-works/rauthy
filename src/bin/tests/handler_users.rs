@@ -218,7 +218,6 @@ async fn test_user_picture() -> Result<(), Box<dyn Error>> {
         .find(|u| u.email == "init_admin@localhost")
         .unwrap()
         .id;
-    eprintln!("user id for picture tests: {}", user_id);
 
     // upload a picture
     let url_picture = format!("{}/users/{}/picture", get_backend_url(), user_id);
@@ -311,7 +310,7 @@ async fn test_user_picture() -> Result<(), Box<dyn Error>> {
         )
         .send()
         .await?;
-    assert_eq!(res.status(), 200);
+    crate::common::check_status(res, 200).await?;
 
     // make sure access with token for another user fails
     let url_picture = format!("{}/users/{}/picture", get_backend_url(), user_id_admin);

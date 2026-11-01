@@ -206,6 +206,19 @@ pub async fn grant_type_token_exchange(
     if let Some(user) = &user {
         user.check_enabled()?;
         user.check_expired()?;
+        // Subject JWTs currently retain only generic `amr=mfa`, not the upstream source.
+        // Do not launder a restricted provider proof through user token exchange.
+        if RauthyConfig::get()
+            .vars
+            .access
+            .provider_login_clients
+            .is_some()
+        {
+            return Err(ErrorResponse::new(
+                ErrorResponseType::Forbidden,
+                "User token exchange is disabled while upstream client restrictions are active",
+            ));
+        }
     }
 
     let ts = TokenSet::for_token_exchange(

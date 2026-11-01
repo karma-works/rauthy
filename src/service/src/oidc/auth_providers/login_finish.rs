@@ -10,9 +10,11 @@ use rauthy_data::AuthStep;
 use rauthy_data::api_cookie::ApiCookie;
 use rauthy_data::entity::auth_providers::{
     AuthProvider, AuthProviderCallback, AuthProviderLinkCookie, NewFederatedUserCreated,
+    ProviderMfaLogin,
 };
 use rauthy_data::entity::clients::Client;
 use rauthy_data::entity::sessions::{MfaMethod, Session};
+use rauthy_data::rauthy_config::RauthyConfig;
 use rauthy_error::{ErrorResponse, ErrorResponseType};
 use tracing::error;
 
@@ -67,6 +69,11 @@ pub async fn login_finish<'a>(
     let link_cookie = ApiCookie::from_req(req, PROVIDER_LINK_COOKIE)
         .and_then(|value| AuthProviderLinkCookie::try_from(value.as_str()).ok());
 
+    let client = Client::find_maybe_ephemeral(slf.req_client_id.clone()).await?;
+    if link_cookie.is_none() {
+        client.validate_provider_login()?;
+    }
+
     // deserialize payload and validate the information
     let (user, provider_mfa_login, is_new_user) = if provider.issuer == PROVIDER_ATPROTO {
         slf.extract_user_at_proto(&provider, &link_cookie, payload)
@@ -91,8 +98,17 @@ pub async fn login_finish<'a>(
 
     // From here on, we deal with a normal login instead of just an account federation.
 
-    let require_webauthn = user.has_webauthn_enabled();
-    let require_otp = user.has_otp_enabled().await;
+    // Explicitly scoped clients may use verified upstream MFA as their alternative factor.
+    // Unconfigured deployments retain the existing requirement for enrolled local factors.
+    let upstream_sufficient = provider_mfa_login == ProviderMfaLogin::Yes
+        && RauthyConfig::get()
+            .vars
+            .access
+            .provider_login_clients
+            .as_ref()
+            .is_some_and(|clients| clients.contains(&client.id));
+    let require_webauthn = user.has_webauthn_enabled() && !upstream_sufficient;
+    let require_otp = user.has_otp_enabled().await && !upstream_sufficient;
     // A fresh upstream login must never inherit MFA proof from an earlier login on the same
     // session. Nothing is persisted here: `finish_authorize()` validates the client request first
     // and only then links the session to `user` together with the provider MFA proof, so that a
@@ -100,7 +116,6 @@ pub async fn login_finish<'a>(
     session.is_mfa = false;
     session.mfa_method = MfaMethod::None;
 
-    let client = Client::find_maybe_ephemeral(slf.req_client_id).await?;
     let header_origin = client.get_validated_origin_header(req)?;
 
     let auth_step = oidc::authorize::finish_authorize(
