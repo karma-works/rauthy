@@ -6,7 +6,8 @@ at `/oidc/userinfo` and validate them at `/oidc/introspect`.
 ## Sub-features
 
 - `token-password` — password grant returns access, id and refresh token.
-- `token-cc` — client_credentials grant returns an access token.
+- `token-cc` — client_credentials grants with form credentials and Basic-only authentication
+  return access tokens; missing, empty, short and incorrect secrets remain denied.
 - `token-refresh` — refresh_token grant returns a new access token.
 - `token-denied` — wrong password returns 401 `Invalid user credentials`.
 - `userinfo` — bearer access token returns the user's claims.
@@ -34,6 +35,7 @@ curl -s $API/oidc/userinfo -H "Authorization: Bearer $AT"
 curl -s $API/oidc/introspect -u init_client:$CS -d token=$AT
 curl -s -w ' %{http_code}\n' $TOK -d grant_type=refresh_token "${C[@]}" -d refresh_token=$RT
 curl -s -w ' %{http_code}\n' $TOK -d grant_type=client_credentials "${C[@]}"
+curl -s -w ' %{http_code}\n' $TOK -u init_client:$CS -d grant_type=client_credentials
 curl -s -w ' %{http_code}\n' $TOK -d grant_type=password "${C[@]}" \
   -d username=init_admin@localhost -d password=wrong
 ```
@@ -42,7 +44,9 @@ curl -s -w ' %{http_code}\n' $TOK -d grant_type=password "${C[@]}" \
   `["access_token","expires_in","id_token","refresh_token","scope","token_type"]`.
 - **Userinfo.** `200`, body has `"email":"init_admin@localhost"`, `"roles":["rauthy_admin"]`.
 - **Introspect.** `200`, `"active":true`, `"client_id":"init_client"`.
-- **Refresh / client credentials.** Each ends in ` 200` with a new `access_token`.
+- **Refresh / client credentials.** Each ends in ` 200` with a new `access_token`. Basic-only
+  authentication sends neither `client_id` nor `client_secret` in the form. Missing secrets remain
+  `400`; incorrect Basic secrets remain `401`. The HTTP owner is `test_client_credentials_flow`.
 - **Denied.** `401`, `{"error":"Unauthorized","message":"Invalid user credentials"}`.
 - **Proof.** Save each response with `| tee <evidence>/tokens/<step>.json`; decode claims with
   `cut -d. -f2 <<<"$AT" | tr '_-' '/+' | base64 -d 2>/dev/null` → `iss` is
@@ -55,3 +59,5 @@ curl -s -w ' %{http_code}\n' $TOK -d grant_type=password "${C[@]}" \
 - `config-test.toml` sets `disable_refresh_token_nbf = true`; on other configs an immediate
   refresh can be rejected as "not yet valid".
 - `dpop_http = true` in dev mode — DPoP proofs over plain HTTP are accepted only here.
+- Public clients and confidential clients without the `client_credentials` flow remain denied;
+  the HTTP owner creates and deletes only its own dedicated flow-guard client.

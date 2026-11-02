@@ -8,7 +8,9 @@ use actix_web::{App, HttpResponse, HttpServer, http, web};
 use chrono::Utc;
 use ed25519_compact::Noise;
 use pretty_assertions::assert_eq;
-use rauthy_api_types::clients::{ClientResponse, NewClientRequest, UpdateClientRequest};
+use rauthy_api_types::clients::{
+    ClientResponse, ClientSecretResponse, NewClientRequest, UpdateClientRequest,
+};
 use rauthy_api_types::oidc::{
     GrantType, JktClaim, JwkKeyPairAlg, LoginRequest, TokenInfo, TokenRequest,
     TokenRevocationRequest, TokenValidationRequest,
@@ -725,6 +727,114 @@ async fn test_client_credentials_flow() -> Result<(), Box<dyn Error>> {
     assert_eq!(ts.scope.as_deref(), access_claims["scope"].as_str());
 
     validate_token(ts.access_token.clone(), None).await?;
+
+    // RFC 6749 section 2.3.1: Basic authentication does not repeat credentials in the body.
+    let basic_body = TokenRequest {
+        grant_type: GrantType::ClientCredentials,
+        ..Default::default()
+    };
+    let res = client
+        .post(&url)
+        .basic_auth(CLIENT_ID, Some(CLIENT_SECRET))
+        .form(&basic_body)
+        .send()
+        .await?;
+    let res = check_status(res, 200).await?;
+    let basic = res.json::<TokenSet>().await?;
+    assert!(!basic.access_token.is_empty());
+    assert_eq!(basic.token_type, JwtTokenType::Bearer);
+    assert_eq!(basic.expires_in, ts.expires_in);
+    assert_eq!(basic.scope, ts.scope);
+    assert!(basic.id_token.is_none());
+    assert!(basic.refresh_token.is_none());
+    let basic_claims = decode_claims(&basic.access_token);
+    assert_eq!(basic_claims["sub"], access_claims["sub"]);
+    assert_eq!(basic_claims["aud"], access_claims["aud"]);
+    assert_eq!(basic_claims["scope"], access_claims["scope"]);
+    validate_token(basic.access_token, None).await?;
+
+    let wrong_secret = "x".repeat(CLIENT_SECRET.len());
+    for invalid_secret in ["", "invalid-secret", wrong_secret.as_str()] {
+        let res = client
+            .post(&url)
+            .basic_auth(CLIENT_ID, Some(invalid_secret))
+            .form(&basic_body)
+            .send()
+            .await?;
+        check_status(res, 401).await?;
+    }
+    // Missing credentials still fail before client lookup, even without a client ID.
+    let res = client.post(&url).form(&basic_body).send().await?;
+    check_status(res, 400).await?;
+
+    let auth_headers = get_auth_headers().await?;
+    let res = client
+        .get(format!("{backend_url}/clients/rauthy"))
+        .headers(auth_headers.clone())
+        .send()
+        .await?;
+    let public = check_status(res, 200)
+        .await?
+        .json::<ClientResponse>()
+        .await?;
+    assert!(!public.confidential);
+    let res = client
+        .post(&url)
+        .basic_auth("rauthy", Some(CLIENT_SECRET))
+        .form(&basic_body)
+        .send()
+        .await?;
+    check_status(res, 400).await?;
+
+    // A valid confidential secret cannot enable a flow that the administrator did not grant.
+    let no_flow_id = format!("basic-no-flow-{}", get_rand(8));
+    let no_flow_url = format!("{backend_url}/clients/{no_flow_id}");
+    let res = client
+        .post(format!("{backend_url}/clients"))
+        .headers(auth_headers.clone())
+        .json(&NewClientRequest {
+            id: no_flow_id.clone(),
+            secret: None,
+            name: Some("SYNTHETIC Basic flow guard".to_string()),
+            confidential: true,
+            redirect_uris: vec![format!("{backend_url}/oidc/callback")],
+            post_logout_redirect_uris: None,
+        })
+        .send()
+        .await?;
+    let no_flow = check_status(res, 200)
+        .await?
+        .json::<ClientResponse>()
+        .await?;
+    assert!(
+        !no_flow
+            .flows_enabled
+            .contains(&GrantType::ClientCredentials)
+    );
+    let res = client
+        .post(format!("{no_flow_url}/secret"))
+        .headers(auth_headers.clone())
+        .send()
+        .await?;
+    let secret = check_status(res, 200)
+        .await?
+        .json::<ClientSecretResponse>()
+        .await?
+        .secret
+        .expect("the dedicated confidential client has a secret");
+    let res = client
+        .post(&url)
+        .basic_auth(&no_flow_id, Some(&secret))
+        .form(&basic_body)
+        .send()
+        .await?;
+    check_status(res, 400).await?;
+    let res = client
+        .delete(&no_flow_url)
+        .headers(auth_headers)
+        .send()
+        .await?;
+    check_status(res, 200).await?;
 
     Ok(())
 }
