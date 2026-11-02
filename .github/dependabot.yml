@@ -1,0 +1,40 @@
+# Dependabot (enabled by ArztAgent's scripts/security-setup.sh). Cargo and npm: security updates
+# only, grouped into one PR per ecosystem and labelled `security`, so a merge also builds the
+# image ("ArztAgent image"). Version updates stay off: they would conflict with every upstream
+# sync. GitHub Actions: monthly SHA bumps.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    cooldown:
+      default-days: 7
+    schedule:
+      interval: daily
+    open-pull-requests-limit: 0
+    labels: [dependencies, security]
+    groups:
+      cargo-security:
+        applies-to: security-updates
+        patterns: ['*']
+  - package-ecosystem: npm
+    directory: /frontend
+    cooldown:
+      default-days: 7
+    schedule:
+      interval: daily
+    open-pull-requests-limit: 0
+    labels: [dependencies, security]
+    groups:
+      npm-security:
+        applies-to: security-updates
+        patterns: ['*']
+  - package-ecosystem: github-actions
+    directories: [/, /.github/actions/*]
+    cooldown:
+      default-days: 7
+    schedule:
+      interval: monthly
+    labels: [dependencies]
+    groups:
+      actions:
+        patterns: ['*']

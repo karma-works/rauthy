@@ -1,0 +1,26 @@
+# gitleaks (Security scan workflow): default rules plus the places where upstream keeps example
+# and test credentials on purpose. Never add a path here to hide a real secret; rotate it.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Upstream documentation, examples, test configs and test certificates"
+paths = [
+  '''^docs/''',
+  '''^book/''',
+  '''^rauthy-book/''',
+  '''^CHANGELOG\.md$''',
+  '''^config(-local)?(-test)?\.toml$''',
+  '''^secrets\.toml$''',
+  '''^rauthy(\.(deploy|test))?\.cfg$''',
+  '''^src/bin/tests/''',
+  '''^tls/''',
+  '''^\.claude/skills/verify-rauthy/''',
+]
+
+[[allowlists]]
+description = "False positives in source: a config key name and a test ID token"
+condition = "AND"
+paths = ['''^src/data/src/(rauthy_config\.rs|entity/auth_providers\.rs)$''']
+regexes = ['''"access"''', '''^eyJhbGciOiJSUzI1NiIsImtpZCI6InlPeXYt''']

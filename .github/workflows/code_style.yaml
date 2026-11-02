@@ -7,6 +7,8 @@ on:
       - reopened
       - synchronize
       - ready_for_review
+  # Dispatched by "Upstream sync" on its branch (workflow-token PRs start no pull_request runs).
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
@@ -16,7 +18,7 @@ permissions:
 
 jobs:
   check:
-    if: github.event.pull_request.draft == false
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: Check Code Style
     runs-on: ubuntu-latest
     container:
