@@ -176,10 +176,9 @@ jobs:
         with:
           name: ${{ needs.prepare.outputs.merge == 'clean' && 'sync' || 'sync-resolved' }}
           path: ${{ runner.temp }}/sync
-      - name: Fetch upstream
+      - name: Configure upstream
         run: |
           git remote add upstream "$UPSTREAM_URL"
-          git fetch --quiet upstream main
       - name: Push and open the PR
         env:
           GH_TOKEN: ${{ github.token }}

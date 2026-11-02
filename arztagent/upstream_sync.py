@@ -90,6 +90,19 @@ def git(*args: str, check: bool = True) -> str:
     return result.stdout.strip()
 
 
+def remote_main(remote: str) -> str:
+    """Fetch a remote's main branch before using it as a publication trust anchor."""
+    git("fetch", "-q", "--no-tags", remote,
+        f"+refs/heads/main:refs/remotes/{remote}/main")
+    return git("rev-parse", "--verify", f"refs/remotes/{remote}/main^{{commit}}")
+
+
+def changed_files(base: str, head: str) -> list[str]:
+    # No rename detection: removing a protected path must remain visible as a deletion.
+    return [path for path in git("diff", "--no-renames", "--name-only", "-z", base, head).split("\0")
+            if path]
+
+
 def api(method: str, path: str, payload: dict[str, Any] | None = None) -> Any:
     url = path if path.startswith("https://") else f"https://api.github.com/{path.lstrip('/')}"
     headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
@@ -187,7 +200,10 @@ def _days_ago(day: str) -> int:
 
 def open_sync_pulls(repo: str) -> list[dict[str, Any]]:
     pulls = api("GET", f"repos/{repo}/pulls?state=open&per_page=100") or []
-    return [p for p in pulls if p["head"]["ref"].startswith(BRANCH_PREFIX)]
+    return [p for p in pulls
+            if (p.get("head", {}).get("repo") or {}).get("full_name", "").lower() == repo.lower()
+            and (p.get("base") or {}).get("ref") == "main"
+            and re.fullmatch(r"upstream-sync/[0-9a-f]{12}", p.get("head", {}).get("ref", ""))]
 
 
 # --- commands --------------------------------------------------------------------------------
@@ -257,7 +273,7 @@ def cmd_merge(args: argparse.Namespace) -> int:
 
 def _forbidden(base: str, upstream: str) -> list[str]:
     merge_base = git("merge-base", base, upstream)
-    changed = git("diff", "--name-only", merge_base, upstream).splitlines()
+    changed = changed_files(merge_base, upstream)
     return [f for f in changed if f.startswith(FORBIDDEN_PATHS)]
 
 
@@ -303,12 +319,12 @@ def _has_markers(path: Path) -> bool:
     return bool(re.search(r"^(<{7}|={7}|>{7})( |$)", text, re.MULTILINE))
 
 
-def verify_bundle_head(plan: dict[str, Any], head: str) -> None:
-    """The pushed commit must be exactly one merge of the planned fork and upstream heads."""
+def verify_bundle_head(base: str, upstream: str, head: str) -> None:
+    """The pushed commit must be exactly one merge of the independently fetched heads."""
     parents = git("rev-list", "--parents", "-n", "1", head).split()[1:]
-    if parents != [plan["base"], plan["upstream"]]:
+    if parents != [base, upstream]:
         raise RuntimeError(f"unexpected parents {parents} for {head}")
-    changed = git("diff", "--name-only", plan["base"], head).splitlines()
+    changed = changed_files(base, head)
     forbidden = [f for f in changed if f.startswith(FORBIDDEN_PATHS)]
     if forbidden:
         raise RuntimeError("merge changes forbidden paths: " + ", ".join(forbidden))
@@ -345,7 +361,7 @@ def pr_body(plan: dict[str, Any], run_url: str) -> str:
             lines += ["<details><summary>Notizen des Agenten (ungeprüfter Text aus dem Agenten-Lauf)</summary>", "", plan["notes"].strip(),
                       "", "</details>", ""]
     else:
-        lines += ["Keine; der Merge lief ohne Eingriff.", ""]
+        lines += ["Keine Konflikte im Artefakt gemeldet; den Diff trotzdem prüfen.", ""]
     lines += [
         "## Vor dem Merge",
         "",
@@ -377,26 +393,16 @@ def _cell(text: str) -> str:
     return text.replace("|", "\\|").replace("\n", " ")
 
 
-SHA = re.compile(r"^[0-9a-f]{40}$")
-
-
-def trusted_plan(untrusted: dict[str, Any], repo: str, base_ref: str = "origin/main",
-                 upstream_ref: str = "upstream/main") -> dict[str, Any]:
+def trusted_plan(untrusted: dict[str, Any], repo: str, base: str, upstream: str) -> dict[str, Any]:
     """The plan the publish job acts on, rebuilt from the remotes.
 
     plan.json comes from a job that ran upstream code and the agent, so it is only a hint:
-    upstream must be the fetched upstream head, base a commit of main, and the branch is
-    derived from the upstream sha. Only the agent's notes and conflict list are taken over,
-    as text for the reviewer.
+    The base and upstream must match the freshly fetched heads, and the branch is derived from
+    the upstream sha. Only the agent's notes and conflict list are taken over as review text.
     """
-    upstream = git("rev-parse", upstream_ref)
-    if untrusted.get("upstream") != upstream:
-        raise RuntimeError(f"artifact names upstream {untrusted.get('upstream')!r}, upstream is at {upstream}")
-    base = str(untrusted.get("base", ""))
-    if not SHA.match(base) or subprocess.run(
-            ["git", "merge-base", "--is-ancestor", base, base_ref]).returncode != 0:
-        raise RuntimeError(f"artifact base {base!r} is not a commit of {base_ref}")
     branch = BRANCH_PREFIX + upstream[:12]
+    if (untrusted.get("base"), untrusted.get("upstream"), untrusted.get("branch")) != (base, upstream, branch):
+        raise RuntimeError("sync artifact does not match the current remote heads and branch")
     existing = open_sync_pulls(repo) if repo else []
     return {
         "base": base, "upstream": upstream, "branch": branch,
@@ -409,23 +415,27 @@ def trusted_plan(untrusted: dict[str, Any], repo: str, base_ref: str = "origin/m
 
 
 def cmd_publish(args: argparse.Namespace) -> int:
-    plan = trusted_plan(load(args.plan), args.repo)
-    git("fetch", "-q", args.bundle, f"refs/heads/{plan['branch']}:refs/sync/head")
+    base = remote_main("origin")
+    upstream = remote_main("upstream")
+    plan = trusted_plan(load(args.plan), args.repo, base, upstream)
+    branch = plan["branch"]
+    git("fetch", "-q", args.bundle, f"refs/heads/{branch}:refs/sync/head")
     head = git("rev-parse", "refs/sync/head")
-    verify_bundle_head(plan, head)
-    git("push", "-q", "--force", "origin", f"{head}:refs/heads/{plan['branch']}")
+    verify_bundle_head(base, upstream, head)
+    pulls = open_sync_pulls(args.repo)
     security = any(c["security"] for c in plan["commits"])
-    title = f"Upstream-Sync: {UPSTREAM}@{plan['upstream'][:12]}"
+    title = f"Upstream-Sync: {UPSTREAM}@{upstream[:12]}"
     if security:
         title = "[Security] " + title
     body = pr_body(plan, args.run_url)
-    existing = [p for p in open_sync_pulls(args.repo) if p["head"]["ref"] == plan["branch"]]
+    existing = [p for p in pulls if p["head"]["ref"] == branch]
+    git("push", "-q", "origin", f"{head}:refs/heads/{branch}")
     if existing:
         number = existing[0]["number"]
         api("PATCH", f"repos/{args.repo}/pulls/{number}", {"title": title, "body": body})
     else:
         number = api("POST", f"repos/{args.repo}/pulls", {
-            "title": title, "body": body, "head": plan["branch"], "base": args.base_branch,
+            "title": title, "body": body, "head": branch, "base": args.base_branch,
             "maintainer_can_modify": True})["number"]
     labels = [LABEL_SYNC] + ([LABEL_SECURITY] if security else [])
     api("POST", f"repos/{args.repo}/issues/{number}/labels", {"labels": labels})
@@ -436,11 +446,11 @@ def cmd_publish(args: argparse.Namespace) -> int:
     for workflow in CI_WORKFLOWS:
         try:
             api("POST", f"repos/{args.repo}/actions/workflows/{workflow}/dispatches",
-                {"ref": plan["branch"]})
+                {"ref": branch})
         except RuntimeError as error:
             print(f"warning: could not dispatch {workflow}: {error}", file=sys.stderr)
     _close_conflict_issue(args.repo, number)
-    print(f"PR #{number}: {title}")
+    print(f"Upstream sync PR: {title}")
     write_output(pr=number)
     return 0
 

@@ -8,6 +8,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import upstream_sync as sync
 
@@ -110,7 +111,8 @@ class MergeFlowTest(unittest.TestCase):
         run(self.repo, "git", "commit", "-qm", message)
 
     def make_plan(self):
-        sync.main(["--plan", self.plan, "plan", "--base", "main", "--upstream", "upstream", "--repo", ""])
+        with patch.object(sync, "recent_advisories", return_value=[]):
+            sync.main(["--plan", self.plan, "plan", "--base", "main", "--upstream", "upstream", "--repo", ""])
         return sync.load(self.plan)
 
     def test_clean_merge(self):
@@ -120,7 +122,7 @@ class MergeFlowTest(unittest.TestCase):
         self.assertEqual(len(plan["commits"]), 1)
         self.assertTrue(plan["commits"][0]["security"])
         self.assertEqual(sync.main(["--plan", self.plan, "merge"]), 0)
-        sync.verify_bundle_head(plan, "HEAD")
+        sync.verify_bundle_head(plan["base"], plan["upstream"], "HEAD")
 
     def test_conflict_then_finish(self):
         self.commit("upstream", "auth.rs", "check_a();\ncheck_upstream();\n", "Fix: token check")
@@ -132,7 +134,7 @@ class MergeFlowTest(unittest.TestCase):
         (self.repo / "auth.rs").write_text("check_a();\ncheck_fork();\ncheck_upstream();\n")
         (self.repo / "SYNC_NOTES.md").write_text("kept both checks")
         self.assertEqual(sync.main(["--plan", self.plan, "finish"]), 0)
-        sync.verify_bundle_head(plan, "HEAD")
+        sync.verify_bundle_head(plan["base"], plan["upstream"], "HEAD")
         self.assertEqual(sync.load(self.plan)["notes"], "kept both checks")
         self.assertFalse((self.repo / "SYNC_NOTES.md").exists())
 
@@ -142,12 +144,15 @@ class MergeFlowTest(unittest.TestCase):
         run(self.repo, "git", "update-ref", "refs/remotes/origin/main", "main")
         run(self.repo, "git", "update-ref", "refs/remotes/upstream/main", "upstream")
         forged = {**plan, "branch": "main", "notes": "n"}
-        trusted = sync.trusted_plan(forged, "")
+        with self.assertRaises(RuntimeError):
+            sync.trusted_plan(forged, "", plan["base"], plan["upstream"])
+        with patch.object(sync, "recent_advisories", return_value=[]):
+            trusted = sync.trusted_plan({**plan, "notes": "n"}, "", plan["base"], plan["upstream"])
         self.assertEqual(trusted["branch"], plan["branch"])
         self.assertTrue(trusted["commits"][0]["security"])
         self.assertEqual(trusted["notes"], "n")
         with self.assertRaises(RuntimeError):
-            sync.trusted_plan({**plan, "upstream": plan["base"]}, "")
+            sync.trusted_plan({**plan, "upstream": plan["base"]}, "", plan["base"], plan["upstream"])
         self.commit("main", "side.rs", "s\n", "side")
         run(self.repo, "git", "checkout", "-q", "--orphan", "evil")
         (self.repo / "e.rs").write_text("e\n")
@@ -155,7 +160,7 @@ class MergeFlowTest(unittest.TestCase):
         run(self.repo, "git", "commit", "-qm", "evil")
         evil = run(self.repo, "git", "rev-parse", "HEAD")
         with self.assertRaises(RuntimeError):
-            sync.trusted_plan({**plan, "base": evil}, "")
+            sync.trusted_plan({**plan, "base": evil}, "", plan["base"], plan["upstream"])
 
     def test_extra_commit_is_rejected(self):
         self.commit("upstream", "other.rs", "x\n", "feat: x")
@@ -163,7 +168,7 @@ class MergeFlowTest(unittest.TestCase):
         sync.main(["--plan", self.plan, "merge"])
         self.commit(plan["branch"], "sneaky.rs", "z\n", "extra")
         with self.assertRaises(RuntimeError):
-            sync.verify_bundle_head(plan, "HEAD")
+            sync.verify_bundle_head(plan["base"], plan["upstream"], "HEAD")
 
     def test_workflow_change_is_refused(self):
         self.commit("upstream", ".github/workflows/x.yaml", "on: push\n", "ci")

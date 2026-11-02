@@ -13,7 +13,7 @@ import copilot_findings as cf
 
 
 def alert(number, level, tool="CodeQL", path="src/a.rs"):
-    return {"number": number, "tool": {"name": tool}, "html_url": f"https://x/{number}",
+    return {"number": number, "state": "open", "tool": {"name": tool}, "html_url": f"https://x/{number}",
             "rule": {"id": f"rust/rule-{number}", "security_severity_level": level, "description": "Bad"},
             "most_recent_instance": {"location": {"path": path, "start_line": 3}}}
 
@@ -88,13 +88,16 @@ class GitTest(unittest.TestCase):
             cf.verify_fix(self.base, head)
 
     def test_base_outside_main_refused(self):
-        run(self.repo, "git", "update-ref", "refs/remotes/origin/main", self.base)
         run(self.repo, "git", "checkout", "-q", "--orphan", "evil")
         evil = self.commit("e.rs", "e\n")
-        with patch.object(cf, "api", return_value=alert(3, "low")):
+        artifact = {"alert": {"number": 3}, "base": self.base, "branch": "copilot-autofix/alert-3"}
+        with patch.object(cf, "api", return_value=alert(3, "low")), \
+                patch.object(cf, "remote_main", return_value=self.base):
             with self.assertRaises(RuntimeError):
-                cf.trusted_record("o/r", 3, {"base": evil, "branch": "main"})
-            record = cf.trusted_record("o/r", 3, {"base": self.base, "branch": "main"})
+                cf.trusted_record("o/r", 3, {**artifact, "base": evil})
+            with self.assertRaises(RuntimeError):
+                cf.trusted_record("o/r", 3, {**artifact, "branch": "main"})
+            record = cf.trusted_record("o/r", 3, artifact)
         self.assertEqual(record["branch"], "copilot-autofix/alert-3")
 
     def test_unrelated_history_refused(self):
@@ -120,7 +123,8 @@ class PublishTest(unittest.TestCase):
 
     def test_severity_comes_from_the_api_not_the_artifact(self):
         out = Path(tempfile.mkdtemp())
-        (out / "alert.json").write_text(json.dumps({"alert": alert(3, "low"), "base": "0" * 40}))
+        (out / "alert.json").write_text(json.dumps({"alert": alert(3, "low"), "base": "0" * 40,
+                                                    "branch": "copilot-autofix/alert-3"}))
         (out / "verdict.json").write_text(json.dumps(
             {"decision": "dismiss", "dismissed_reason": "false positive", "summary": "s"}))
         calls = []
@@ -130,7 +134,7 @@ class PublishTest(unittest.TestCase):
             return alert(3, "critical") if path.endswith("/alerts/3") else {}
 
         with patch.object(cf, "api", side_effect=fake_api), \
-                patch.object(cf.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)):
+                patch.object(cf, "remote_main", return_value="0" * 40):
             cf.cmd_publish(argparse.Namespace(out=str(out), repo="o/r", run_url="u", alert=3))
         self.assertFalse([c for c in calls if c[0] == "PATCH"])  # critical: never auto-dismissed
 

@@ -182,6 +182,5 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           ALERT: ${{ matrix.item.alert }}
         run: |
-          git fetch -q origin "copilot-autofix/alert-$ALERT" || true
-          git fetch -q origin main
-          python3 arztagent/copilot_findings.py publish --alert "$ALERT" --out "$RUNNER_TEMP/finding" --run-url "$RUN_URL"
+          python3 arztagent/copilot_findings.py publish --alert "$ALERT" \
+            --out "$RUNNER_TEMP/finding" --run-url "$RUN_URL"

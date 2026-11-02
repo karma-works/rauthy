@@ -22,14 +22,13 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import subprocess
 import sys
 import time
 from pathlib import Path
 from typing import Any
 
-from upstream_sync import CI_WORKFLOWS, FORBIDDEN_PATHS, api, git, write_output
+from upstream_sync import CI_WORKFLOWS, FORBIDDEN_PATHS, api, changed_files, git, remote_main, write_output
 
 TOOLS = ("CodeQL",)
 BRANCH_PREFIX = "copilot-autofix/alert-"
@@ -37,11 +36,10 @@ LABEL_AUTOFIX = "copilot-autofix"
 LABEL_SECURITY = "security"
 LABEL_DECISION = "security-decision"
 SEVERITY_ORDER = ("critical", "high", "medium", "low", "error", "warning", "note", "none")
-AUTO_DISMISS = ("medium", "low", "warning", "note", "none")
+AUTO_DISMISS = ("medium", "low")
 DECISIONS = ("accept", "improve", "own-fix", "dismiss", "unsure")
 DISMISS_REASONS = ("false positive", "won't fix", "used in tests")
 VERDICT = "FINDING_VERDICT.json"
-SHA = re.compile(r"^[0-9a-f]{40}$")
 
 
 def severity(alert: dict[str, Any]) -> str:
@@ -89,6 +87,8 @@ def cmd_plan(args: argparse.Namespace) -> int:
 
 def cmd_autofix(args: argparse.Namespace) -> int:
     """Copilot Autofix for one alert, committed to its branch; alert.json for the next jobs."""
+    if args.alert <= 0:
+        raise ValueError("alert number must be positive")
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     alert = api("GET", f"repos/{args.repo}/code-scanning/alerts/{args.alert}")
@@ -163,7 +163,7 @@ def verify_fix(base: str, head: str) -> list[str]:
     """Files the fix changes; raises unless it builds on main and avoids paths the token may not push."""
     if subprocess.run(["git", "merge-base", "--is-ancestor", base, head]).returncode != 0:
         raise RuntimeError(f"{head} does not build on main {base}")
-    changed = git("diff", "--name-only", base, head).splitlines()
+    changed = changed_files(base, head)
     forbidden = [f for f in changed if f.startswith(FORBIDDEN_PATHS)]
     if forbidden:
         raise RuntimeError("fix touches " + ", ".join(forbidden))
@@ -200,22 +200,23 @@ def body(record: dict[str, Any], verdict: dict[str, Any], files: list[str], run_
 
 
 def trusted_record(repo: str, number: int, untrusted: dict[str, Any]) -> dict[str, Any]:
-    """Alert, branch and base for publishing, not taken from the check job's artifact.
-
-    That artifact comes from a job that ran repository code and the agent: the alert and the
-    autofix are fetched again, the branch follows from the alert number, and the base must be
-    a commit of main.
-    """
+    """Independently check the current main, selected alert, branch and autofix."""
+    if not isinstance(number, int) or isinstance(number, bool) or number <= 0:
+        raise ValueError("alert number must be positive")
+    branch = f"{BRANCH_PREFIX}{number}"
+    base = remote_main("origin")
+    if ((untrusted.get("alert") or {}).get("number") != number or untrusted.get("branch") != branch
+            or untrusted.get("base") != base):
+        raise RuntimeError("finding artifact does not match the selected alert and current main")
     alert = api("GET", f"repos/{repo}/code-scanning/alerts/{number}")
-    base = str(untrusted.get("base", ""))
-    if not SHA.match(base) or subprocess.run(
-            ["git", "merge-base", "--is-ancestor", base, "origin/main"]).returncode != 0:
-        raise RuntimeError(f"artifact base {base!r} is not a commit of origin/main")
+    if (not isinstance(alert, dict) or alert.get("number") != number or alert.get("state") != "open"
+            or (alert.get("tool") or {}).get("name") not in TOOLS):
+        raise RuntimeError("selected CodeQL alert is no longer open")
     try:
         autofix = api("GET", f"repos/{repo}/code-scanning/alerts/{number}/autofix") or {}
     except RuntimeError:
         autofix = {"status": "unavailable"}
-    return {"alert": alert, "branch": f"{BRANCH_PREFIX}{number}", "base": base, "autofix": autofix}
+    return {"alert": alert, "branch": branch, "base": base, "autofix": autofix}
 
 
 def cmd_publish(args: argparse.Namespace) -> int:
@@ -226,18 +227,18 @@ def cmd_publish(args: argparse.Namespace) -> int:
         verdict = load_verdict(out / "verdict.json")
     except (OSError, ValueError) as error:
         verdict = {"decision": "unsure", "summary": f"Kein gültiges Urteil: {error}"}
-    alert, branch, number = record["alert"], record["branch"], args.alert
+    alert, branch, base, number = record["alert"], record["branch"], record["base"], args.alert
     decision = verdict["decision"]
     if decision in ("accept", "improve", "own-fix"):
         git("fetch", "-q", str(out / "fix.bundle"), f"HEAD:refs/fix/{number}")
         head = git("rev-parse", f"refs/fix/{number}")
         try:
-            files = verify_fix(record["base"], head)
+            files = verify_fix(base, head)
         except RuntimeError as error:
             return _issue(args, record, verdict, f"Fix nicht automatisch veröffentlichbar: {error}")
         if not files:
             return _issue(args, record, verdict, "Das Urteil verlangt einen Fix, aber es gibt keine Änderung.")
-        git("push", "-q", "--force", "origin", f"{head}:refs/heads/{branch}")
+        git("push", "-q", "origin", f"{head}:refs/heads/{branch}")
         title = f"[Security] {alert['rule'].get('description') or alert['rule']['id']} (Alert #{number})"
         pull = api("POST", f"repos/{args.repo}/pulls", {
             "title": title[:200], "head": branch, "base": "main",
@@ -291,7 +292,7 @@ def _issue(args: argparse.Namespace, record: dict[str, Any], verdict: dict[str, 
     api("POST", f"repos/{args.repo}/issues", {
         "title": f"Security-Entscheidung: Code-Scanning-Alert #{alert['number']} ({alert['rule']['id']})",
         "body": text, "labels": [LABEL_DECISION, LABEL_SECURITY]})
-    print(f"issue opened for alert #{alert['number']}")
+    print(f"issue opened for alert #{args.alert}")
     return 0
 
 
@@ -312,6 +313,7 @@ def main(argv: list[str] | None = None) -> int:
     publish = sub.add_parser("publish")
     publish.add_argument("--alert", type=int, required=True, help="from the plan job's matrix")
     publish.add_argument("--out", required=True)
+    publish.add_argument("--alert", type=int, required=True)
     publish.add_argument("--run-url", default="")
     args = parser.parse_args(argv)
     return {"plan": cmd_plan, "autofix": cmd_autofix, "finalize": cmd_finalize,

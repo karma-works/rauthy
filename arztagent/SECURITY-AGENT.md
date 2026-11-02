@@ -8,10 +8,10 @@ schnell übernehmen und bekannte Lücken früh sehen. Einrichtung (Rechte, Rules
 
 | Workflow | Wann | Was |
 |---|---|---|
-| `upstream_sync.yaml` | täglich 05:17 UTC, manuell | neue Commits von `sebadob/rauthy` mergen, PR öffnen |
-| `security_scan.yaml` | PR, `main`, montags | osv-scanner, gitleaks, zizmor, trivy → Code Scanning |
+| `upstream_sync.yaml` | täglich 05:17 UTC, manuell | `sebadob/rauthy`-Commits als PR |
+| `security_scan.yaml` | PR, `main`, montags | Schwachstellen- und Secret-Scans |
 | CodeQL (Default Setup) | PR, `main`, wöchentlich | Rust, JS/TS, Actions → Code Scanning |
-| `copilot_findings.yaml` | täglich, manuell | CodeQL-Alerts + Copilot Autofix prüfen, fixen oder verwerfen |
+| `copilot_findings.yaml` | täglich, manuell | CodeQL-Alerts und Copilot Autofix prüfen |
 | Dependabot | täglich | Sicherheitsupdates Cargo/npm als ein PR, Label `security` |
 | `tests.yaml` | PR, vom Sync angestoßen | Unit- und Integrationstests gegen Hiqlite |
 | `arztagent_image.yaml` | Merge mit Label `upstream-sync`/`security` | Image `<version>-aa<n>` |
@@ -28,14 +28,15 @@ Danach öffnet ArztAgent (`rauthy-image-bump.yml`) selbst den PR für `ops/rauth
    `arztagent/upstream_sync_prompt.md` (beide Seiten erhalten, fmt/clippy/Unit-Tests), schreibt
    Notizen in die PR-Beschreibung. Ohne Schlüssel oder bei Fehlschlag: Issue mit Label
    `upstream-sync-conflict` und einer fertigen Anweisung für eine Claude-Code-Sitzung.
-4. **Publish:** Ein eigener Job ohne Upstream-Code nimmt aus dem Artefakt nur Hinweise: Upstream-
-   Stand frisch aus `upstream/main`, Basis muss ein Commit von `main` sein, Branch fest
-   `upstream-sync/<sha>`. Er prüft, dass das Bundle genau dieser Merge ist und nichts unter
-   `.github/` ändert, pusht, öffnet den PR und stößt `Code Style`, `Tests` und `Security scan` an.
-5. Ein neuerer Upstream-Stand ersetzt den offenen Sync-PR (alter PR wird geschlossen).
+4. **Publish:** Ein eigener Job lädt `origin/main` und `upstream/main` erneut und leitet den
+   Zielbranch `upstream-sync/<sha>` aus dem Upstream-Commit ab. Er verwirft veraltete oder
+   abweichende Artefakte und prüft die Merge-Eltern sowie alle Änderungen unter `.github/`.
+   Nur danach pusht er ohne Force, öffnet den PR und stößt die drei CI-Workflows an.
+5. Ein neuerer Upstream-Stand ersetzt offene Sync-PRs desselben Repos und Zielbranches.
 
 **Review:** Ein Mensch mergt. Bei KI-gelösten Konflikten jede genannte Datei im Diff lesen;
-Fork-Härtungen (force_mfa, Passkeys, Wiederherstellungscodes) müssen erhalten sein.
+Fork-Härtungen (force_mfa, Passkeys, Wiederherstellungscodes) müssen erhalten sein. Der Inhalt
+des Bundles und die Konflikt-Notizen stammen vom Agenten und sind nicht vertrauenswürdig.
 
 ## Copilot-Befunde (`arztagent/copilot_findings.py`)
 
@@ -44,8 +45,9 @@ Fix auf `copilot-autofix/alert-<n>`; Claude Code prüft Befund und Fix
 (`arztagent/copilot_findings_prompt.md`) und entscheidet: `accept`, `improve`, `own-fix` → PR
 mit Label `security`; `dismiss` → Alert mit Begründung verworfen (nur low/medium, sonst Issue
 `security-decision`); `unsure` → Issue. Ein Alert mit offenem PR oder Issue wird übersprungen.
-Der Publish-Job holt Alert, Schwere und Autofix neu von der API; Branch und Basis kommen nie
-aus dem Artefakt des Prüf-Jobs.
+Der Publish-Job leitet die Alertnummer aus der geplanten Matrix und den Branch daraus ab. Er
+prüft `origin/main` und den offenen CodeQL-Alert neu; Branch, Basis und Alertnummer im Artefakt
+müssen dazu passen. Alert, Schwere und Autofix werden erneut von der GitHub-API geladen.
 
 ## Secrets und Variablen
 
