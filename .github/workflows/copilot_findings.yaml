@@ -183,4 +183,5 @@ jobs:
           ALERT: ${{ matrix.item.alert }}
         run: |
           git fetch -q origin "copilot-autofix/alert-$ALERT" || true
-          python3 arztagent/copilot_findings.py publish --out "$RUNNER_TEMP/finding" --run-url "$RUN_URL"
+          git fetch -q origin main
+          python3 arztagent/copilot_findings.py publish --alert "$ALERT" --out "$RUNNER_TEMP/finding" --run-url "$RUN_URL"

@@ -28,9 +28,10 @@ Danach öffnet ArztAgent (`rauthy-image-bump.yml`) selbst den PR für `ops/rauth
    `arztagent/upstream_sync_prompt.md` (beide Seiten erhalten, fmt/clippy/Unit-Tests), schreibt
    Notizen in die PR-Beschreibung. Ohne Schlüssel oder bei Fehlschlag: Issue mit Label
    `upstream-sync-conflict` und einer fertigen Anweisung für eine Claude-Code-Sitzung.
-4. **Publish:** Ein eigener Job ohne Upstream-Code prüft, dass das Bundle genau ein Merge aus
-   Fork- und Upstream-Stand ist und nichts unter `.github/` ändert, pusht, öffnet den PR und stößt
-   `Code Style`, `Tests` und `Security scan` an (PRs mit dem Workflow-Token starten sonst nichts).
+4. **Publish:** Ein eigener Job ohne Upstream-Code nimmt aus dem Artefakt nur Hinweise: Upstream-
+   Stand frisch aus `upstream/main`, Basis muss ein Commit von `main` sein, Branch fest
+   `upstream-sync/<sha>`. Er prüft, dass das Bundle genau dieser Merge ist und nichts unter
+   `.github/` ändert, pusht, öffnet den PR und stößt `Code Style`, `Tests` und `Security scan` an.
 5. Ein neuerer Upstream-Stand ersetzt den offenen Sync-PR (alter PR wird geschlossen).
 
 **Review:** Ein Mensch mergt. Bei KI-gelösten Konflikten jede genannte Datei im Diff lesen;
@@ -43,6 +44,8 @@ Fix auf `copilot-autofix/alert-<n>`; Claude Code prüft Befund und Fix
 (`arztagent/copilot_findings_prompt.md`) und entscheidet: `accept`, `improve`, `own-fix` → PR
 mit Label `security`; `dismiss` → Alert mit Begründung verworfen (nur low/medium, sonst Issue
 `security-decision`); `unsure` → Issue. Ein Alert mit offenem PR oder Issue wird übersprungen.
+Der Publish-Job holt Alert, Schwere und Autofix neu von der API; Branch und Basis kommen nie
+aus dem Artefakt des Prüf-Jobs.
 
 ## Secrets und Variablen
 

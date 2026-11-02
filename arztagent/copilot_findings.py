@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 import time
@@ -40,6 +41,7 @@ AUTO_DISMISS = ("medium", "low", "warning", "note", "none")
 DECISIONS = ("accept", "improve", "own-fix", "dismiss", "unsure")
 DISMISS_REASONS = ("false positive", "won't fix", "used in tests")
 VERDICT = "FINDING_VERDICT.json"
+SHA = re.compile(r"^[0-9a-f]{40}$")
 
 
 def severity(alert: dict[str, Any]) -> str:
@@ -197,11 +199,34 @@ def body(record: dict[str, Any], verdict: dict[str, Any], files: list[str], run_
     return "\n".join(lines)
 
 
+def trusted_record(repo: str, number: int, untrusted: dict[str, Any]) -> dict[str, Any]:
+    """Alert, branch and base for publishing, not taken from the check job's artifact.
+
+    That artifact comes from a job that ran repository code and the agent: the alert and the
+    autofix are fetched again, the branch follows from the alert number, and the base must be
+    a commit of main.
+    """
+    alert = api("GET", f"repos/{repo}/code-scanning/alerts/{number}")
+    base = str(untrusted.get("base", ""))
+    if not SHA.match(base) or subprocess.run(
+            ["git", "merge-base", "--is-ancestor", base, "origin/main"]).returncode != 0:
+        raise RuntimeError(f"artifact base {base!r} is not a commit of origin/main")
+    try:
+        autofix = api("GET", f"repos/{repo}/code-scanning/alerts/{number}/autofix") or {}
+    except RuntimeError:
+        autofix = {"status": "unavailable"}
+    return {"alert": alert, "branch": f"{BRANCH_PREFIX}{number}", "base": base, "autofix": autofix}
+
+
 def cmd_publish(args: argparse.Namespace) -> int:
     out = Path(args.out)
-    record = json.loads((out / "alert.json").read_text(encoding="utf-8"))
-    verdict = json.loads((out / "verdict.json").read_text(encoding="utf-8"))
-    alert, branch, number = record["alert"], record["branch"], record["alert"]["number"]
+    untrusted = json.loads((out / "alert.json").read_text(encoding="utf-8"))
+    record = trusted_record(args.repo, args.alert, untrusted)
+    try:
+        verdict = load_verdict(out / "verdict.json")
+    except (OSError, ValueError) as error:
+        verdict = {"decision": "unsure", "summary": f"Kein gültiges Urteil: {error}"}
+    alert, branch, number = record["alert"], record["branch"], args.alert
     decision = verdict["decision"]
     if decision in ("accept", "improve", "own-fix"):
         git("fetch", "-q", str(out / "fix.bundle"), f"HEAD:refs/fix/{number}")
@@ -285,6 +310,7 @@ def main(argv: list[str] | None = None) -> int:
     finalize = sub.add_parser("finalize")
     finalize.add_argument("--out", required=True)
     publish = sub.add_parser("publish")
+    publish.add_argument("--alert", type=int, required=True, help="from the plan job's matrix")
     publish.add_argument("--out", required=True)
     publish.add_argument("--run-url", default="")
     args = parser.parse_args(argv)

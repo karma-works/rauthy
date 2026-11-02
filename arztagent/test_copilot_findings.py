@@ -87,6 +87,16 @@ class GitTest(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             cf.verify_fix(self.base, head)
 
+    def test_base_outside_main_refused(self):
+        run(self.repo, "git", "update-ref", "refs/remotes/origin/main", self.base)
+        run(self.repo, "git", "checkout", "-q", "--orphan", "evil")
+        evil = self.commit("e.rs", "e\n")
+        with patch.object(cf, "api", return_value=alert(3, "low")):
+            with self.assertRaises(RuntimeError):
+                cf.trusted_record("o/r", 3, {"base": evil, "branch": "main"})
+            record = cf.trusted_record("o/r", 3, {"base": self.base, "branch": "main"})
+        self.assertEqual(record["branch"], "copilot-autofix/alert-3")
+
     def test_unrelated_history_refused(self):
         run(self.repo, "git", "checkout", "-q", "--orphan", "other")
         head = self.commit("b.rs", "z\n")
@@ -101,9 +111,28 @@ class PublishTest(unittest.TestCase):
                                                     "base": "0" * 40, "autofix": {"status": "success"}}))
         (out / "verdict.json").write_text(json.dumps(verdict))
         calls = []
-        with patch.object(cf, "api", side_effect=lambda *a: calls.append(a)):
-            cf.cmd_publish(argparse.Namespace(out=str(out), repo="o/r", run_url="u"))
+        record = {"alert": alert(3, level), "branch": "copilot-autofix/alert-3", "base": "0" * 40,
+                  "autofix": {"status": "success"}}
+        with patch.object(cf, "api", side_effect=lambda *a: calls.append(a)), \
+                patch.object(cf, "trusted_record", return_value=record):
+            cf.cmd_publish(argparse.Namespace(out=str(out), repo="o/r", run_url="u", alert=3))
         return calls
+
+    def test_severity_comes_from_the_api_not_the_artifact(self):
+        out = Path(tempfile.mkdtemp())
+        (out / "alert.json").write_text(json.dumps({"alert": alert(3, "low"), "base": "0" * 40}))
+        (out / "verdict.json").write_text(json.dumps(
+            {"decision": "dismiss", "dismissed_reason": "false positive", "summary": "s"}))
+        calls = []
+
+        def fake_api(method, path, payload=None):
+            calls.append((method, path, payload))
+            return alert(3, "critical") if path.endswith("/alerts/3") else {}
+
+        with patch.object(cf, "api", side_effect=fake_api), \
+                patch.object(cf.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)):
+            cf.cmd_publish(argparse.Namespace(out=str(out), repo="o/r", run_url="u", alert=3))
+        self.assertFalse([c for c in calls if c[0] == "PATCH"])  # critical: never auto-dismissed
 
     def test_dismiss_medium(self):
         calls = self.publish("medium", {"decision": "dismiss", "dismissed_reason": "false positive",

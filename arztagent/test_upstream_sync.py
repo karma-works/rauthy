@@ -136,6 +136,27 @@ class MergeFlowTest(unittest.TestCase):
         self.assertEqual(sync.load(self.plan)["notes"], "kept both checks")
         self.assertFalse((self.repo / "SYNC_NOTES.md").exists())
 
+    def test_publish_rebuilds_the_plan_from_the_remotes(self):
+        self.commit("upstream", "other.rs", "x\n", "Fix: session race")
+        plan = self.make_plan()
+        run(self.repo, "git", "update-ref", "refs/remotes/origin/main", "main")
+        run(self.repo, "git", "update-ref", "refs/remotes/upstream/main", "upstream")
+        forged = {**plan, "branch": "main", "notes": "n"}
+        trusted = sync.trusted_plan(forged, "")
+        self.assertEqual(trusted["branch"], plan["branch"])
+        self.assertTrue(trusted["commits"][0]["security"])
+        self.assertEqual(trusted["notes"], "n")
+        with self.assertRaises(RuntimeError):
+            sync.trusted_plan({**plan, "upstream": plan["base"]}, "")
+        self.commit("main", "side.rs", "s\n", "side")
+        run(self.repo, "git", "checkout", "-q", "--orphan", "evil")
+        (self.repo / "e.rs").write_text("e\n")
+        run(self.repo, "git", "add", "-A")
+        run(self.repo, "git", "commit", "-qm", "evil")
+        evil = run(self.repo, "git", "rev-parse", "HEAD")
+        with self.assertRaises(RuntimeError):
+            sync.trusted_plan({**plan, "base": evil}, "")
+
     def test_extra_commit_is_rejected(self):
         self.commit("upstream", "other.rs", "x\n", "feat: x")
         plan = self.make_plan()

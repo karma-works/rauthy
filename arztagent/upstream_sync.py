@@ -342,7 +342,7 @@ def pr_body(plan: dict[str, Any], run_url: str) -> str:
         lines += ["**Ein Agent hat diese Konflikte aufgelöst. Bitte jede Datei im Diff genau lesen:**", ""]
         lines += [f"- `{f}`" for f in plan["conflicts"]] + [""]
         if plan.get("notes"):
-            lines += ["<details><summary>Notizen des Agenten</summary>", "", plan["notes"].strip(),
+            lines += ["<details><summary>Notizen des Agenten (ungeprüfter Text aus dem Agenten-Lauf)</summary>", "", plan["notes"].strip(),
                       "", "</details>", ""]
     else:
         lines += ["Keine; der Merge lief ohne Eingriff.", ""]
@@ -377,9 +377,40 @@ def _cell(text: str) -> str:
     return text.replace("|", "\\|").replace("\n", " ")
 
 
+SHA = re.compile(r"^[0-9a-f]{40}$")
+
+
+def trusted_plan(untrusted: dict[str, Any], repo: str, base_ref: str = "origin/main",
+                 upstream_ref: str = "upstream/main") -> dict[str, Any]:
+    """The plan the publish job acts on, rebuilt from the remotes.
+
+    plan.json comes from a job that ran upstream code and the agent, so it is only a hint:
+    upstream must be the fetched upstream head, base a commit of main, and the branch is
+    derived from the upstream sha. Only the agent's notes and conflict list are taken over,
+    as text for the reviewer.
+    """
+    upstream = git("rev-parse", upstream_ref)
+    if untrusted.get("upstream") != upstream:
+        raise RuntimeError(f"artifact names upstream {untrusted.get('upstream')!r}, upstream is at {upstream}")
+    base = str(untrusted.get("base", ""))
+    if not SHA.match(base) or subprocess.run(
+            ["git", "merge-base", "--is-ancestor", base, base_ref]).returncode != 0:
+        raise RuntimeError(f"artifact base {base!r} is not a commit of {base_ref}")
+    branch = BRANCH_PREFIX + upstream[:12]
+    existing = open_sync_pulls(repo) if repo else []
+    return {
+        "base": base, "upstream": upstream, "branch": branch,
+        "upstream_version": _version_at(upstream), "fork_version": _version_at(base),
+        "commits": new_commits(base, upstream), "advisories": recent_advisories(),
+        "superseded": [p["number"] for p in existing if p["head"]["ref"] != branch],
+        "conflicts": [str(f) for f in untrusted.get("conflicts") or []][:200],
+        "notes": str(untrusted.get("notes") or "")[:20000],
+    }
+
+
 def cmd_publish(args: argparse.Namespace) -> int:
-    plan = load(args.plan)
-    git("fetch", "-q", args.bundle, f"{plan['branch']}:refs/sync/head")
+    plan = trusted_plan(load(args.plan), args.repo)
+    git("fetch", "-q", args.bundle, f"refs/heads/{plan['branch']}:refs/sync/head")
     head = git("rev-parse", "refs/sync/head")
     verify_bundle_head(plan, head)
     git("push", "-q", "--force", "origin", f"{head}:refs/heads/{plan['branch']}")
