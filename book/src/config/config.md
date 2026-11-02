@@ -313,6 +313,18 @@ Kubernetes secrets, or simply provide the whole config as one secret (my preferr
 # overwritten by: AUTH_HEADERS_ENABLE_PREF_USERNAME
 #enable_pref_username = false
 
+# If `true`, the values of all auth headers are percent-encoded
+# (UTF-8, like URLs), so that non-ASCII characters, for instance
+# in names, can be passed safely through proxies and backends.
+# Only non-ASCII bytes, control characters and `%` itself are
+# encoded, other ASCII characters like spaces and commas stay the
+# same. Decode the values once as UTF-8 on the receiving side
+# (a `+` is not a space here).
+#
+# default: false
+# overwritten by: AUTH_HEADERS_PERCENT_ENCODE
+#percent_encode = false
+
 # Configure the header names being used for the different values. You
 # can change them to your needs, if you cannot easily change your
 # downstream apps.
@@ -874,6 +886,16 @@ backup_keep_for_local = '3d'
 # default: false
 #HQL_DANGER_RAFT_STATE_RESET=true
 
+[consent]
+# Set to `true` to enable user consent for clients. This feature is
+# still in progress. Currently, it only makes a client deletion also
+# delete all legacy refresh tokens (issued before refresh tokens were
+# bound to a client) of all users.
+#
+# default: false
+# overwritten by: CONSENT_ENABLE
+#enable = false
+
 [cred_stuff_detection]
 ## This section contains values for the credential stuffing
 ## detection algorithm. In most cases the defaults should be
@@ -1415,6 +1437,9 @@ smtp_url = 'localhost'
 # overwritten by: TZ_FMT_EN
 #en = '%m/%d/%Y %T (%Z)'
 # default: '%d/%m/%Y %T (%Z)'
+# overwritten by: TZ_FMT_ES
+#es = '%d/%m/%Y %T (%Z)'
+# default: '%d/%m/%Y %T (%Z)'
 # overwritten by: TZ_FMT_FR
 #fr = '%d/%m/%Y %T (%Z)'
 # default: '%Y/%m/%d %T (%Z)'
@@ -1429,6 +1454,9 @@ smtp_url = 'localhost'
 # default: '%d.%m.%Y %T (%Z)'
 # overwritten by: TZ_FMT_NO
 #no = '%d.%m.%Y %T (%Z)'
+# default: '%d/%m/%Y %T (%Z)'
+# overwritten by: TZ_FMT_PT
+#pt = '%d/%m/%Y %T (%Z)'
 # default: '%d.%m.%Y %T (%Z)'
 # overwritten by: TZ_FMT_RU
 #ru = '%d.%m.%Y %T (%Z)'
@@ -2125,13 +2153,13 @@ max_hash_threads = 2
 # space-separated value.
 #
 # Languages for all user-facing pages.
-# Available Options: en de fr ja ko nb nl ru uk zhhans
+# Available Options: en de es fr ja ko nb nl pt ru uk zhhans
 # overwritten by: FILTER_LANG_COMMON
-filter_lang_common = ['en', 'de', 'fr', 'ja', 'ko', 'nb', 'nl', 'ru', 'uk', 'zhhans']
+filter_lang_common = ['en', 'de', 'es', 'fr', 'ja', 'ko', 'nb', 'nl', 'pt', 'ru', 'uk', 'zhhans']
 # Languages for the Admin UI.
-# Available Options: en de fr ja ko nb nl ru uk zhhans
+# Available Options: en de es fr ja ko nb nl pt ru uk zhhans
 # overwritten by: FILTER_LANG_ADMIN
-filter_lang_admin = ['en', 'de', 'fr', 'ja', 'ko', 'nb', 'nl', 'ru', 'uk', 'zhhans']
+filter_lang_admin = ['en', 'de', 'es', 'fr', 'ja', 'ko', 'nb', 'nl', 'pt', 'ru', 'uk', 'zhhans']
 
 [legal]
 # Links to your legal notice ("Impressum"), privacy policy and help
@@ -2695,7 +2723,7 @@ swagger_ui_enable = false
 # NOTE: This is an array value, and you can specify it multiple
 # times for different `lang` / `typ` combinations.
 
-# one of: en de fr ja ko nb nl ru uk zh_hans
+# one of: en de es fr ja ko nb nl pt ru uk zh_hans
 #lang = 'en'
 
 # pme of: password_new, password_reset
@@ -2768,6 +2796,19 @@ key_path = 'tls/key.pem'
 # default: false
 # overwritten by: TLS_GENERATE_SELF_SIGNED
 #generate_self_signed = false
+
+# You can change from the `inotify` watcher for TLS hot-reloading
+# to a poll-based one. Usually, you never want this. However, when you
+# store your certs on e.g. an NFS backend, where the kernel cannot send
+# file change events, you want to switch to the poll watcher. If you
+# provide any duration here, it will be used as the interval for the
+# watcher. For TLS reloading, you usually want a higher value. They
+# usually don't need to be instant.
+#
+# type: duration
+# default value: not set
+# overwritten by: TLS_POLL_WATCH_INTERVAL
+#poll_watch_interval = '5m'
 
 [tos]
 
@@ -2962,6 +3003,15 @@ storage_type = 'db'
 # default: false
 # overwritten_by: USER_VALUES_REVALIDATE_DURING_LOGIN
 #revalidate_during_login = false
+
+# The `name` claim in the `id_token` and in `/userinfo` is built as
+# `given_name family_name`, like "Taro Yamada". Set this to `true`
+# to put the family name first, like "Yamada Taro", which is the
+# usual order in e.g. Japanese, Chinese or Korean.
+#
+# default: false
+# overwritten by: USER_VALUES_NAME_ORDER_REVERSE
+#name_order_reverse = false
 
 [user_values.preferred_username]
 

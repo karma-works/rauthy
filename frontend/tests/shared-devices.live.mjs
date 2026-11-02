@@ -221,7 +221,7 @@ function jwtPayload(token) {
     return JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString());
 }
 
-async function exchangeCode(callbackUrl) {
+async function exchangeCode(callbackUrl, clientId = CLIENT_ID) {
     const code = new URL(callbackUrl).searchParams.get('code');
     const res = await fetch(`${BASE}/auth/v1/oidc/token`, {
         method: 'POST',
@@ -230,7 +230,7 @@ async function exchangeCode(callbackUrl) {
             grant_type: 'authorization_code',
             code,
             redirect_uri: CALLBACK,
-            client_id: CLIENT_ID,
+            client_id: clientId,
             code_verifier: VERIFIER,
         }),
     });
@@ -469,6 +469,141 @@ test('shared devices: register a PC, PIN login, lock and unlock', async t => {
     assert.equal(res.status, 204, res.text);
     await pc.goto(authorizeUrl(CLIENT_ID));
     await pc.getByText('Empfang 2 · Praxis Test').waitFor();
+
+    // An unrelated client (including the operator login) keeps its ordinary MFA semantics.
+    const otherClient = `account-${Date.now()}`;
+    res = await api(admin, 'POST', '/clients', {
+        id: otherClient,
+        name: 'Unrelated MFA client',
+        confidential: false,
+        redirect_uris: [CALLBACK],
+    });
+    assert.equal(res.status, 200, res.text);
+    res = await api(admin, 'GET', `/clients/${otherClient}`);
+    res = await api(admin, 'PUT', `/clients/${otherClient}`, {
+        ...res.json,
+        force_mfa: true,
+        flows_enabled: ['authorization_code', 'refresh_token'],
+    });
+    assert.equal(res.status, 200, res.text);
+    await pc.goto(authorizeUrl(otherClient, '&prompt=login'));
+    await pc.locator('input[name=email]').fill(emailA);
+    await pc.getByRole('button', { name: 'Login', exact: true }).first().click();
+    const accountPassword = pc.locator('input[name=password]');
+    await Promise.race([accountPassword.waitFor(), pc.waitForURL(/\/oidc\/callback/)]);
+    if (await accountPassword.isVisible()) {
+        await accountPassword.fill(PWD);
+        await pc.getByRole('button', { name: 'Login', exact: true }).first().click();
+    }
+    await pc.waitForURL(/\/oidc\/callback/);
+    const ordinary = jwtPayload((await exchangeCode(pc.url(), otherClient)).access_token);
+    assert.deepEqual(ordinary.amr, ['mfa']);
+    for (const claim of ['aa_practice_role', 'aa_practice_id', 'aa_shared_session']) {
+        assert.equal(ordinary[claim], undefined, claim);
+    }
+
+    // --- optional practice roles use their own PINs and keep the account's personal PIN
+    const roles = `/shared_devices/practices/${PRACTICE}/roles`;
+    res = await api(admin, 'PUT', roles, { user_id: uidA });
+    assert.equal(res.status, 204, res.text);
+    res = await api(admin, 'PUT', roles, { user_id: uidB });
+    assert.equal(res.status, 403, res.text);
+    res = await api(admin, 'GET', roles);
+    assert.equal(res.json.length, 3);
+    assert.ok(res.json.every(r => r.enabled && !r.has_pin));
+    for (const role of ['administration', 'management', 'staff']) {
+        res = await api(admin, 'PUT', `${roles}/${role}/pin`, {
+            user_id: uidA,
+            password: PWD,
+            pin: '7391',
+        });
+        assert.equal(res.status, 204, res.text);
+    }
+    await pc.goto(authorizeUrl(CLIENT_ID));
+    await pc.getByLabel('Rolle wählen').selectOption('staff');
+    // A client cannot omit the role and fall back to a valid old personal PIN.
+    await pc.route(
+        '**/oidc/authorize/pin',
+        async route => {
+            const body = route.request().postDataJSON();
+            delete body.role;
+            await route.continue({ postData: JSON.stringify(body) });
+        },
+        { times: 1 },
+    );
+    const bypass = pc.waitForResponse(r => r.url().endsWith('/oidc/authorize/pin'));
+    await enterPin(pc, pinA);
+    assert.equal((await bypass).status(), 403);
+    await enterPin(pc, '7391');
+    await pc.waitForURL(/\/oidc\/callback/);
+    const roleTokens = await exchangeCode(pc.url());
+    const roleClaims = jwtPayload(roleTokens.access_token);
+    assert.equal(roleClaims.sub, uidA);
+    assert.equal(roleClaims.aa_practice_role, 'staff');
+    assert.equal(roleClaims.aa_practice_id, PRACTICE);
+    assert.ok(roleClaims.aa_shared_session);
+    assert.ok(
+        jwtPayload(roleTokens.refresh_token).exp - jwtPayload(roleTokens.refresh_token).nbf > 120,
+    );
+    const live = `/shared_devices/sessions/${roleClaims.aa_shared_session}`;
+    res = await api(admin, 'GET', live);
+    assert.equal(res.status, 200, res.text);
+    assert.equal(res.json.role, 'staff');
+    // A role session cannot change a different role, even through the trusted backend API.
+    res = await api(admin, 'PUT', `${roles}/administration/pin`, {
+        user_id: uidA,
+        session_id: roleClaims.aa_shared_session,
+        pin: '4826',
+    });
+    assert.equal(res.status, 403, res.text);
+    res = await api(admin, 'PUT', `${roles}/staff/pin`, {
+        user_id: uidA,
+        session_id: roleClaims.aa_shared_session,
+        pin: '4826',
+    });
+    assert.equal(res.status, 204, res.text);
+    res = await api(admin, 'GET', live);
+    assert.ok([401, 403, 404].includes(res.status), res.text);
+    // The password lock is account-wide and does not prevent a passkey or role PIN login.
+    for (let attempt = 0; attempt < 5; attempt++) {
+        res = await api(admin, 'PUT', `${roles}/staff/pin`, {
+            user_id: uidA,
+            password: 'wrong-synthetic-password',
+            pin: '4826',
+        });
+        assert.equal(res.status, 401, res.text);
+    }
+    res = await api(admin, 'PUT', `${roles}/staff/pin`, {
+        user_id: uidA,
+        password: PWD,
+        pin: '4826',
+    });
+    assert.equal(res.status, 401, res.text);
+    await pc.goto(authorizeUrl(CLIENT_ID));
+    await pc.getByRole('button', { name: 'Sign in with passkey' }).click();
+    await pc.waitForURL(/\/oidc\/callback/);
+    // Five wrong PINs lock only this role/device; another role still works.
+    await pc.goto(authorizeUrl(CLIENT_ID));
+    await pc.getByLabel('Rolle wählen').selectOption('staff');
+    for (let attempt = 0; attempt < 5; attempt++) {
+        const denied = pc.waitForResponse(r => r.url().endsWith('/oidc/authorize/pin'));
+        await enterPin(pc, '0000');
+        assert.ok([401, 423].includes((await denied).status()));
+    }
+    const locked = pc.waitForResponse(r => r.url().endsWith('/oidc/authorize/pin'));
+    await enterPin(pc, '4826');
+    assert.equal((await locked).status(), 423);
+    await pc.getByLabel('Rolle wählen').selectOption('management');
+    await enterPin(pc, '7391');
+    await pc.waitForURL(/\/oidc\/callback/);
+    const manager = jwtPayload((await exchangeCode(pc.url())).access_token);
+    assert.equal(manager.aa_practice_role, 'management');
+    res = await api(admin, 'DELETE', roles);
+    assert.equal(res.status, 204, res.text);
+    res = await api(admin, 'GET', `/shared_devices/sessions/${manager.aa_shared_session}`);
+    assert.ok([401, 403, 404].includes(res.status), res.text);
+    res = await api(admin, 'GET', roles);
+    assert.ok(res.json.every(r => !r.enabled && r.has_pin));
 
     // --- a sign-in reset deletes the passkeys, and with the last one the PIN
     res = await api(admin, 'DELETE', `/users/${uidB}/webauthn/delete/Key`, {});

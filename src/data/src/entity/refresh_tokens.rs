@@ -1,4 +1,5 @@
 use crate::database::DB;
+use crate::entity::clients::Client;
 use crate::entity::issued_tokens::IssuedToken;
 use crate::entity::sessions::MfaMethod;
 use chrono::Utc;
@@ -21,6 +22,9 @@ pub struct RefreshToken {
     pub access_token_jti: Option<String>,
     #[column(parse)]
     pub mfa_method: MfaMethod,
+    pub client_id: Option<String>,
+    /// `Client::created_micros` of `client_id` when the token was issued.
+    pub client_created_micros: Option<i64>,
 }
 
 impl Debug for RefreshToken {
@@ -28,7 +32,7 @@ impl Debug for RefreshToken {
         write!(
             f,
             "RefreshToken {{ id: {}(...), user_id: {}, nbf: {}, exp: {}, scope: {:?}, is_mfa: {}, \
-            mfa_method: {}, session_id: {:?} }}",
+            mfa_method: {}, session_id: {:?}, client_id: {:?}, client_created_micros: {:?} }}",
             &self.id[..5],
             self.user_id,
             self.nbf,
@@ -37,7 +41,20 @@ impl Debug for RefreshToken {
             self.is_mfa,
             self.mfa_method.as_str(),
             self.session_id.as_ref().map(|sid| &sid[..5]),
+            self.client_id,
+            self.client_created_micros,
         )
+    }
+}
+
+impl RefreshToken {
+    /// `false` if the token was issued for another client, or for a deleted one with the same id.
+    /// Legacy tokens without `client_id` match any client.
+    pub fn is_for_client(&self, client: &Client) -> bool {
+        match &self.client_id {
+            None => true,
+            Some(id) => *id == client.id && self.client_created_micros == client.created_micros,
+        }
     }
 }
 
@@ -56,21 +73,58 @@ impl RefreshToken {
         mfa_method: MfaMethod,
         session_id: Option<String>,
         access_token_jti: Option<String>,
-    ) -> Result<Self, ErrorResponse> {
-        let rt = Self {
-            id,
-            user_id,
-            nbf,
-            exp,
-            scope,
-            is_mfa: mfa_method.is_mfa(),
-            session_id,
-            access_token_jti,
-            mfa_method,
-        };
+        client: &Client,
+    ) -> Result<(), ErrorResponse> {
+        let is_mfa = mfa_method.is_mfa();
+        let sql = r#"
+INSERT INTO refresh_tokens
+(id, user_id, nbf, exp, scope, is_mfa, session_id, access_token_jti, client_id,
+client_created_micros, mfa_method)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+ON CONFLICT(id) DO UPDATE
+SET user_id = $2, nbf = $3, exp = $4, scope = $5, session_id = $7, access_token_jti = $8,
+    client_id = $9, client_created_micros = $10, mfa_method = $11"#;
 
-        rt.save().await?;
-        Ok(rt)
+        if is_hiqlite() {
+            DB::hql()
+                .execute(
+                    sql,
+                    params!(
+                        id,
+                        user_id,
+                        nbf,
+                        exp,
+                        scope,
+                        is_mfa,
+                        session_id,
+                        access_token_jti,
+                        client.id.as_str(),
+                        client.created_micros,
+                        mfa_method.as_str()
+                    ),
+                )
+                .await?;
+        } else {
+            DB::pg_execute(
+                sql,
+                &[
+                    &id,
+                    &user_id,
+                    &nbf,
+                    &exp,
+                    &scope,
+                    &is_mfa,
+                    &session_id,
+                    &access_token_jti,
+                    &client.id,
+                    &client.created_micros,
+                    &mfa_method.as_str(),
+                ],
+            )
+            .await?;
+        }
+
+        Ok(())
     }
 
     pub async fn delete(&self) -> Result<(), ErrorResponse> {
@@ -132,6 +186,40 @@ impl RefreshToken {
             DB::pg_execute(sql, &[&session_id]).await?;
         }
         Ok(())
+    }
+
+    /// Deletes all refresh tokens for `user_id` + `client_id` from both `refresh_tokens` and
+    /// `refresh_tokens_devices` and returns the total number of deleted rows.
+    /// Legacy rows with `client_id` NULL are deliberately not matched.
+    pub async fn delete_by_user_client(
+        user_id: &str,
+        client_id: &str,
+    ) -> Result<usize, ErrorResponse> {
+        let sql_1 = "DELETE FROM refresh_tokens WHERE user_id = $1 AND client_id = $2";
+        let sql_2 = r#"
+DELETE FROM refresh_tokens_devices
+WHERE user_id = $1
+  AND device_id IN (SELECT id FROM devices WHERE client_id = $2)"#;
+
+        let mut deleted = 0;
+        if is_hiqlite() {
+            for res in DB::hql()
+                .txn([
+                    (sql_1, params!(user_id, client_id)),
+                    (sql_2, params!(user_id, client_id)),
+                ])
+                .await?
+            {
+                deleted += res?;
+            }
+        } else {
+            let mut cl = DB::pg().await?;
+            let txn = cl.transaction().await?;
+            deleted += DB::pg_txn_append(&txn, sql_1, &[&user_id, &client_id]).await? as usize;
+            deleted += DB::pg_txn_append(&txn, sql_2, &[&user_id, &client_id]).await? as usize;
+            txn.commit().await?;
+        }
+        Ok(deleted)
     }
 
     pub async fn find_all() -> Result<Vec<Self>, ErrorResponse> {
@@ -208,51 +296,69 @@ impl RefreshToken {
 
         Ok(slf)
     }
+}
 
-    pub async fn save(&self) -> Result<(), ErrorResponse> {
-        let sql = r#"
-INSERT INTO refresh_tokens
-(id, user_id, nbf, exp, scope, is_mfa, session_id, access_token_jti, mfa_method)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-ON CONFLICT(id) DO UPDATE
-SET user_id = $2, nbf = $3, exp = $4, scope = $5, session_id = $7, access_token_jti = $8,
-    mfa_method = $9"#;
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pretty_assertions::assert_eq;
 
-        if is_hiqlite() {
-            DB::hql()
-                .execute(
-                    sql,
-                    params!(
-                        self.id.clone(),
-                        self.user_id.clone(),
-                        self.nbf,
-                        self.exp,
-                        self.scope.clone(),
-                        self.is_mfa,
-                        self.session_id.clone(),
-                        self.access_token_jti.clone(),
-                        self.mfa_method.as_str()
-                    ),
-                )
-                .await?;
-        } else {
-            DB::pg_execute(
-                sql,
-                &[
-                    &self.id,
-                    &self.user_id,
-                    &self.nbf,
-                    &self.exp,
-                    &self.scope,
-                    &self.is_mfa,
-                    &self.session_id,
-                    &self.access_token_jti,
-                    &self.mfa_method.as_str(),
-                ],
-            )
-            .await?;
+    fn row(client_id: Option<&str>) -> serde_json::Value {
+        let mut row = serde_json::json!({
+            "id": "rt_1234567890",
+            "user_id": "user_1",
+            "nbf": 1,
+            "exp": 2,
+            "scope": "openid",
+            "is_mfa": false,
+            "session_id": "sid_1234567890",
+            "access_token_jti": "jti_1",
+            "mfa_method": "none",
+        });
+        if let Some(cid) = client_id {
+            row["client_id"] = serde_json::Value::String(cid.to_string());
         }
+        row
+    }
 
-        Ok(())
+    #[test]
+    fn test_client_id_mapping() {
+        let rt: RefreshToken = serde_json::from_value(row(Some("client_1"))).unwrap();
+        assert_eq!(rt.client_id.as_deref(), Some("client_1"));
+        assert!(format!("{rt:?}").contains("client_id: Some(\"client_1\")"));
+
+        // missing key -> None
+        let rt: RefreshToken = serde_json::from_value(row(None)).unwrap();
+        assert_eq!(rt.client_id, None);
+
+        // explicit NULL -> None
+        let mut null_row = row(None);
+        null_row["client_id"] = serde_json::Value::Null;
+        let rt: RefreshToken = serde_json::from_value(null_row).unwrap();
+        assert_eq!(rt.client_id, None);
+    }
+
+    #[test]
+    fn test_is_for_client() {
+        let client = |id: &str, created_micros| Client {
+            id: id.to_string(),
+            created_micros,
+            ..Default::default()
+        };
+
+        let mut rt: RefreshToken = serde_json::from_value(row(None)).unwrap();
+        assert!(rt.is_for_client(&client("client_1", Some(1))));
+        assert!(rt.is_for_client(&client("client_2", None)));
+
+        rt.client_id = Some("client_1".to_string());
+        assert!(rt.is_for_client(&client("client_1", None)));
+        assert!(!rt.is_for_client(&client("client_1", Some(1))));
+        assert!(!rt.is_for_client(&client("client_2", None)));
+
+        rt.client_created_micros = Some(1);
+        assert!(rt.is_for_client(&client("client_1", Some(1))));
+        assert!(!rt.is_for_client(&client("client_1", Some(2))));
+        assert!(!rt.is_for_client(&client("client_1", None)));
+        assert!(!rt.is_for_client(&client("client_2", Some(1))));
     }
 }

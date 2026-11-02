@@ -97,6 +97,10 @@
 
         let payload: UpdateUserSelfRequest = {
             password_new: passwords.new,
+            given_name: user.given_name,
+            family_name: user.family_name,
+            language: user.language,
+            user_values: user.user_values,
         };
         if (mfaCode) {
             payload.mfa_code = mfaCode;
@@ -187,7 +191,9 @@
         <p>{t.account.accTypePasskeyText3}</p>
         <div>
             <Button level={2} onclick={() => (convertAccount = true)}>
-                {t.account.convertAccount}
+                {user.language === 'de'
+                    ? 'Zusätzliches Passwort einrichten'
+                    : t.account.convertAccount}
             </Button>
         </div>
     {/if}

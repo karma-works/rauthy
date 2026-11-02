@@ -43,7 +43,7 @@ use rauthy_data::entity::tos::ToS;
 use rauthy_data::entity::tos_user_accept::ToSUserAccept;
 use rauthy_data::entity::user_attr::{UserAttrConfigEntity, UserAttrValueEntity};
 use rauthy_data::entity::user_revoke::UserRevoke;
-use rauthy_data::entity::users::User;
+use rauthy_data::entity::users::{AccountType, User};
 use rauthy_data::entity::users_values::UserValues;
 use rauthy_data::entity::webauthn;
 use rauthy_data::entity::webauthn::auth_data::WebauthnAdditionalData;
@@ -835,6 +835,19 @@ pub async fn post_user_mfa_token(
                 "must provide `password`",
             ));
         }
+    } else if user.account_type() == AccountType::Federated {
+        // This is a special case. If the account is federated only, it means that the user has
+        // neither a password nor a passkey. In this situation, we cannot request authentication,
+        // because the user has no option to provide any. To make everything work, for the very
+        // first MFA key added, we allow fetching a mod token without any further authentication.
+        //
+        // This could be improved in the future by requesting a "special" OTP via E-Mail without
+        // the user even having registered any, but this would require quite a bit of rework and
+        // special case handling in lots of situations. For now, we grant the token without any
+        // further validation.
+        debug!(
+            "MFA Mod Token request from federated-only user - granting token without further authentication"
+        );
     } else {
         return Err(ErrorResponse::new(
             ErrorResponseType::BadRequest,
@@ -2122,16 +2135,15 @@ pub async fn delete_webauthn(
     payload.validate()?;
 
     let (id, name) = path.into_inner();
+    let ip = real_ip_from_req(&req)?;
 
-    let notify_user = if principal.is_user(&id).is_ok() {
-        let Some(token_id) = payload.mfa_mod_token_id else {
-            return Err(ErrorResponse::new(
-                ErrorResponseType::BadRequest,
-                "missing `mfa_mod_token_id`",
-            ));
-        };
+    // If this deletion is triggered via the Account Dashboard, no matter if it's an admin or not,
+    // the payload will always carry an MFA Mod Token. In this case, *this* user must match the
+    // path. If no MFA Mod Token is present, we must validate for an admin-triggered action, and
+    // send a notification to the target user.
+    let notify_user = if let Some(token_id) = payload.mfa_mod_token_id {
+        principal.is_user(&id)?;
         let token = MfaModToken::find(&token_id).await?;
-        let ip = real_ip_from_req(&req)?;
         token.validate(principal.user_id()?, ip)?;
 
         // The UI never offers this, but the API is used directly by other apps as well.
@@ -2146,13 +2158,12 @@ pub async fn delete_webauthn(
 
         None
     } else {
-        if principal.is_session_group_admin() {
+        if principal
+            .validate_api_key_or_admin_session(AccessGroup::Users, AccessRights::Delete)
+            .is_err()
+        {
             principal.validate_group_admin_session()?;
-        } else {
-            principal
-                .validate_api_key_or_admin_session(AccessGroup::Users, AccessRights::Delete)?;
         }
-
         let target = User::find(id.clone()).await?;
         principal.validate_group_admin_can_manage(target.roles_iter(), target.groups_iter())?;
         Some(target)
@@ -2188,19 +2199,22 @@ pub async fn delete_webauthn(
         error!(?err, "Sending the PasskeyRemoved event");
     }
 
+    let mut resp = HttpResponse::Ok().finish();
+
     if let Some(user) = notify_user {
         // A reset by an admin must not leave a way back in for whoever holds the old codes,
         // also not after the feature has been switched off and on again.
         crate::recovery::purge_for_user(&user).await?;
         send_email_passkey_removed(&user, &name).await;
+    } else {
+        // Make sure to delete any existing MFA cookie when a key is deleted, but only when this was
+        // a self-delete via the account dashboard.
+        let cookie = ApiCookie::build(COOKIE_MFA, "", 0);
+        if let Err(err) = resp.add_cookie(&cookie) {
+            error!("Error deleting MFA cookie in post_webauthn_delete: {}", err);
+        }
     }
 
-    // make sure to delete any existing MFA cookie when a key is deleted
-    let cookie = ApiCookie::build(COOKIE_MFA, "", 0);
-    let mut resp = HttpResponse::Ok().finish();
-    if let Err(err) = resp.add_cookie(&cookie) {
-        error!("Error deleting MFA cookie in post_webauthn_delete: {}", err);
-    }
     Ok(resp)
 }
 

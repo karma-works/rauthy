@@ -1,5 +1,5 @@
 <script lang="ts" module>
-    export type SplitCard = 'existing' | 'new';
+    export type SplitCard = 'existing' | 'new' | 'password';
 </script>
 
 <script lang="ts">
@@ -22,6 +22,10 @@
         errRecoveryLink = false,
         onExisting,
         onNew,
+        passwordEnabled = false,
+        password = $bindable(''),
+        onPassword,
+        errPassword = '',
     }: {
         clientId?: string;
         clientName: string;
@@ -38,6 +42,10 @@
         errRecoveryLink?: boolean;
         onExisting: () => void;
         onNew: () => void;
+        passwordEnabled?: boolean;
+        password?: string;
+        onPassword?: () => void;
+        errPassword?: string;
     } = $props();
 
     let t = useI18n();
@@ -142,6 +150,44 @@
             {/if}
         </section>
     </div>
+
+    {#if passwordEnabled}
+        <details class="card">
+            <summary>Mit Passwort anmelden</summary>
+            <form
+                onsubmit={event => {
+                    event.preventDefault();
+                    onPassword?.();
+                }}
+            >
+                <label for="password-email">{t.common.email}</label>
+                <input
+                    id="password-email"
+                    name="username"
+                    type="email"
+                    autocomplete="username"
+                    bind:value={email}
+                    required
+                    disabled={busy}
+                />
+                <label for="practice-password">Passwort</label>
+                <input
+                    id="practice-password"
+                    name="password"
+                    type="password"
+                    autocomplete="current-password"
+                    bind:value={password}
+                    required
+                    maxlength="256"
+                    disabled={busy}
+                />
+                <button type="submit" class="secondary" disabled={busy}
+                    >Mit Passwort anmelden</button
+                >
+            </form>
+            {#if errPassword}<p role="alert">{errPassword}</p>{/if}
+        </details>
+    {/if}
 
     <p class="lost">
         {#if recoveryEnabled}

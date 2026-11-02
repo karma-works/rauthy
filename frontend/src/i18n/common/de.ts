@@ -55,13 +55,10 @@ export const I18nDe: I18n = {
     account: {
         account: 'Benutzer Account',
         accType: 'Account Typ',
-        accTypePasskeyText1: `Dies ist ein "Passkey-Only" Account. Das bedeutet, dass\ndieser 
-            Account kein Passwort hat und auch keines benötigt.`,
-        accTypePasskeyText2: `Der Account kann in einen Passwort-Account umgewandelt\nwerden. Das 
-            würde allerdings bedeuten, dass ein Login auf einem neuen Gerät ohne vorherige, 
-            zumindest\neinmalige zusätzliche Verifizierung des Passwortes nicht mehr möglich sein 
-            wird.`,
-        accTypePasskeyText3: 'Soll dieser Account gewandelt und ein Passwort hinzugefügt werden?',
+        accTypePasskeyText1: 'Ihr Konto verwendet bisher Passkeys.',
+        accTypePasskeyText2:
+            'Sie können ein zusätzliches Passwort einrichten. Ihre Passkeys bleiben erhalten.',
+        accTypePasskeyText3: 'Bestätigen Sie die Einrichtung mit Ihrem vorhandenen Passkey.',
         accessExp: 'Zugang erlischt',
         accessRenew: 'Zugang erneuerbar bis',
         accessRenewDelete: 'Möglichkeit zur Erneuerung löschen',
@@ -69,7 +66,7 @@ export const I18nDe: I18n = {
         canModifyFor: 'MFA können modifiziert werden für:',
         city: 'Stadt',
         changePassword: 'Passwort wechseln',
-        convertAccount: 'Account Umwandeln',
+        convertAccount: 'Konto umstellen',
         convertAccountP1: `Dieser Account kann in einen Passkey-Only Account umgewandelt\nwerden. 
             Diese Umwandling löscht das Passwort und erlaubt den alleinigen Login mit den 
             registrieren\nPasskeys. Nur Passkeys mit zusätzlicher Benutzerverifizierung werden 

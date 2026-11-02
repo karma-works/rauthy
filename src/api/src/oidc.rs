@@ -51,13 +51,13 @@ use rauthy_data::html::templates::{
 use rauthy_data::language::Language;
 use rauthy_data::rauthy_config::RauthyConfig;
 use rauthy_error::{ErrorResponse, ErrorResponseType};
+use rauthy_service::forward_auth::auth_header;
 use rauthy_service::oidc::{authorize, logout, token_info, token_revocation, userinfo, validation};
 use rauthy_service::token_set::TokenSet;
 use rauthy_service::{login_delay, oidc};
 use spow::pow::Pow;
 use std::borrow::Cow;
 use std::ops::Add;
-use std::str::FromStr;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tracing::{error, info, warn};
 use validator::Validate;
@@ -89,7 +89,7 @@ pub async fn get_authorize(
     let principal = principal.into_inner();
     let lang = Language::try_from(&req).unwrap_or_default();
 
-    let (client, origin_header) = match validation::validate_auth_req_param(
+    let (client, origin_header) = match validation::validate_auth_code_req_params(
         &req,
         &params.client_id,
         &params.redirect_uri,
@@ -111,7 +111,13 @@ pub async fn get_authorize(
             return Ok(ErrorHtml::response(body, status));
         }
     };
-    let theme_ts = ThemeCssFull::find_theme_ts(client.id.clone()).await?;
+    // ephemeral clients cannot have a custom theme
+    let client_id_theme = if client.is_ephemeral() {
+        "rauthy"
+    } else {
+        &client.id
+    };
+    let theme_ts = ThemeCssFull::find_theme_ts(client_id_theme.to_string()).await?;
 
     // A registered shared device never signs in silently, and each login there starts a new
     // session, see `rauthy_data::entity::shared_devices`.
@@ -214,17 +220,27 @@ pub async fn get_authorize(
     templates.push(HtmlTemplate::PasskeyRegType);
     templates.push(HtmlTemplate::LegalLinks);
     templates.push(HtmlTemplate::LoginLayout(login_layout));
+    templates.push(HtmlTemplate::PracticePassword(
+        shared_devices::is_password_client(&client.id),
+    ));
     templates.push(HtmlTemplate::RecoveryCodes);
     if let Some(device) = &shared_device {
         let practice = SharedDevicePractice::find(&device.practice_id).await?;
         // `max_age` asks for a fresh passkey, like for critical actions.
         let pin = is_pin_client(&client.id) && params.max_age.is_none();
-        templates.push(HtmlTemplate::SharedDevice(shared_devices::template_json(
-            &device.label,
-            &practice.name,
-            device.is_locked(),
-            pin,
-        )));
+        let roles_enabled =
+            rauthy_data::entity::practice_roles::enabled(&device.practice_id).await?;
+        let template =
+            shared_devices::template_json(&device.label, &practice.name, device.is_locked(), pin);
+        let mut template: serde_json::Value = serde_json::from_str(&template)?;
+        template["roles_enabled"] = serde_json::json!(roles_enabled);
+        templates.push(HtmlTemplate::SharedDevice(
+            template
+                .to_string()
+                .replace('<', "\\u003c")
+                .replace('>', "\\u003e")
+                .replace('&', "\\u0026"),
+        ));
     }
     if RauthyConfig::get().vars.atproto.enable {
         let provider_atproto = AuthProvider::find_by_iss(PROVIDER_ATPROTO.to_string()).await?;
@@ -247,7 +263,7 @@ pub async fn get_authorize(
         templates.push(HtmlTemplate::CsrfToken(csrf.to_string()));
         templates.push(HtmlTemplate::LoginAction(FrontendAction::Refresh));
 
-        let body = AuthorizeHtml::build(&lang, &client.id, theme_ts, &templates);
+        let body = AuthorizeHtml::build(&lang, client_id_theme, theme_ts, &templates);
         build_authorize_resp(accept_encoding, body, None, origin_header, browser_id)
     } else {
         // check if we can re-use a still valid session or need to create a new one
@@ -288,7 +304,7 @@ pub async fn get_authorize(
         templates.push(HtmlTemplate::CsrfToken(session.csrf_token.clone()));
         templates.push(HtmlTemplate::LoginAction(action));
 
-        let body = AuthorizeHtml::build(&lang, &client.id, theme_ts, &templates);
+        let body = AuthorizeHtml::build(&lang, client_id_theme, theme_ts, &templates);
         build_authorize_resp(
             accept_encoding,
             body,
@@ -492,7 +508,7 @@ pub async fn post_authorize_refresh(
         ));
     }
 
-    let (client, header_origin) = validation::validate_auth_req_param(
+    let (client, header_origin) = validation::validate_auth_code_req_params(
         &req,
         &payload.client_id,
         &payload.redirect_uri,
@@ -689,16 +705,23 @@ pub async fn post_device_auth(
     }
 
     // we are good - create the code
-    let code =
-        match DeviceAuthCode::new(scopes, client.id, payload.client_secret, payload.nonce).await {
-            Ok(code) => code,
-            Err(err) => {
-                return HttpResponse::InternalServerError().json(OAuth2ErrorResponse {
-                    error: OAuth2ErrorTypeResponse::InvalidRequest,
-                    error_description: Some(err.message),
-                });
-            }
-        };
+    let code = match DeviceAuthCode::new(
+        scopes,
+        client.id,
+        client.created_micros,
+        payload.client_secret,
+        payload.nonce,
+    )
+    .await
+    {
+        Ok(code) => code,
+        Err(err) => {
+            return HttpResponse::InternalServerError().json(OAuth2ErrorResponse {
+                error: OAuth2ErrorTypeResponse::InvalidRequest,
+                error_description: Some(err.message),
+            });
+        }
+    };
 
     let user_code = code.user_code();
     let verification_uri = code.verification_uri();
@@ -1283,24 +1306,6 @@ pub async fn post_userinfo(req: HttpRequest) -> Result<HttpResponse, ErrorRespon
     } else {
         Ok(HttpResponse::Ok().json(info))
     }
-}
-
-#[inline]
-fn auth_header(name: &str, value: &str) -> Result<(HeaderName, HeaderValue), ErrorResponse> {
-    let name = HeaderName::from_str(name).map_err(|_| {
-        ErrorResponse::new(
-            ErrorResponseType::Internal,
-            format!("Invalid header name '{name}'"),
-        )
-    })?;
-    let value = HeaderValue::from_str(value).map_err(|_| {
-        ErrorResponse::new(
-            ErrorResponseType::Internal,
-            format!("Invalid value for header '{name}'"),
-        )
-    })?;
-
-    Ok((name, value))
 }
 
 /// GET forward authentication

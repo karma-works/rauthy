@@ -254,6 +254,9 @@ async fn server_with_metrics() -> std::io::Result<()> {
         // no endpoint means it will not expose one, only collect data
         .exclude("/favicon.ico")
         .exclude("/metrics")
+        // Requests that match no route (scans) as one label value, not
+        // one series per path.
+        .mask_unmatched_patterns("UNKNOWN")
         .build()
         .unwrap();
 
@@ -679,6 +682,11 @@ fn api_services() -> actix_web::Scope {
                 .service(recovery::delete_recovery_codes)
                 .service(recovery::post_recover_start)
                 .service(recovery::post_recover_verify)
+                .service(shared_devices::disable_roles)
+                .service(shared_devices::enable_roles)
+                .service(shared_devices::get_roles)
+                .service(shared_devices::set_role_pin)
+                .service(shared_devices::get_live_session)
                 .service(shared_devices::put_practice)
                 .service(shared_devices::get_practice)
                 .service(shared_devices::delete_practice)

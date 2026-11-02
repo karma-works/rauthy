@@ -239,10 +239,10 @@ INSERT INTO clients
 allowed_origins, flows_enabled, access_token_alg, id_token_alg, auth_code_lifetime,
 access_token_lifetime, scopes, default_scopes, challenge, force_mfa, client_uri, contacts,
 backchannel_logout_uri, restrict_group_prefix, claims, claims_at_root, allowed_resources,
-default_aud)
+default_aud, created_micros)
 VALUES
 ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21,
-$22, $23, $24, $25, $26)"#;
+$22, $23, $24, $25, $26, $27)"#;
 
     if is_hiqlite() {
         DB::hql().execute(sql_1, params!()).await?;
@@ -277,7 +277,8 @@ $22, $23, $24, $25, $26)"#;
                         b.claims,
                         b.claims_at_root,
                         b.allowed_resources,
-                        b.default_aud
+                        b.default_aud,
+                        b.created_micros
                     ),
                 )
                 .await?;
@@ -314,6 +315,7 @@ $22, $23, $24, $25, $26)"#;
                     &b.claims_at_root,
                     &b.allowed_resources,
                     &b.default_aud,
+                    &b.created_micros,
                 ],
             )
             .await?;
@@ -429,8 +431,9 @@ pub async fn devices(data_before: Vec<DeviceEntity>) -> Result<(), ErrorResponse
     let sql_1 = "DELETE FROM devices";
     let sql_2 = r#"
 INSERT INTO devices
-(id, client_id, user_id, created, access_exp, refresh_exp, peer_ip, name)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#;
+(id, client_id, user_id, created, access_exp, refresh_exp, peer_ip, name,
+client_created_micros)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"#;
 
     if is_hiqlite() {
         DB::hql().execute(sql_1, params!()).await?;
@@ -446,7 +449,8 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#;
                         b.access_exp,
                         b.refresh_exp,
                         b.peer_ip,
-                        b.name
+                        b.name,
+                        b.client_created_micros
                     ),
                 )
                 .await?;
@@ -465,6 +469,7 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#;
                     &b.refresh_exp,
                     &b.peer_ip,
                     &b.name,
+                    &b.client_created_micros,
                 ],
             )
             .await?;
@@ -1405,8 +1410,9 @@ pub async fn refresh_tokens(data_before: Vec<RefreshToken>) -> Result<(), ErrorR
     let sql_1 = "DELETE FROM refresh_tokens";
     let sql_2 = r#"
 INSERT INTO refresh_tokens
-(id, user_id, nbf, exp, scope, is_mfa, session_id, access_token_jti, mfa_method)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"#;
+(id, user_id, nbf, exp, scope, is_mfa, session_id, access_token_jti, mfa_method, client_id,
+client_created_micros)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"#;
 
     if is_hiqlite() {
         DB::hql().execute(sql_1, params!()).await?;
@@ -1423,7 +1429,9 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"#;
                         b.is_mfa,
                         b.session_id,
                         b.access_token_jti,
-                        b.mfa_method.as_str()
+                        b.mfa_method.as_str(),
+                        b.client_id,
+                        b.client_created_micros
                     ),
                 )
                 .await?;
@@ -1443,6 +1451,8 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"#;
                     &b.session_id,
                     &b.access_token_jti,
                     &b.mfa_method.as_str(),
+                    &b.client_id,
+                    &b.client_created_micros,
                 ],
             )
             .await?;

@@ -41,6 +41,8 @@
     let showRiskRequired = $state(false);
     let isLoading = $state(false);
     let err = $state('');
+    let password = $state('');
+    let usePassword = $state(false);
     let mfaPurpose: undefined | MfaPurpose = $state();
     let returnUri: undefined | string = $state();
 
@@ -88,7 +90,11 @@
             return;
         }
         isLoading = true;
-        mfaPurpose = 'MfaModToken';
+        if (usePassword && info?.password_allowed) {
+            finishRegistration();
+        } else {
+            mfaPurpose = 'MfaModToken';
+        }
     }
 
     function onMfaError(error: string) {
@@ -118,10 +124,15 @@
             return;
         }
 
+        await finishRegistration(token.body.id);
+    }
+
+    async function finishRegistration(mfaToken?: string) {
         try {
             const key = await createPendingDeviceKey(regId);
             const payload: SharedDeviceRegisterRequest = {
-                mfa_mod_token_id: token.body.id,
+                mfa_mod_token_id: mfaToken,
+                password: usePassword ? password : undefined,
                 public_key: key.publicKey,
                 signature: key.signature,
                 risk_ack: riskAck,
@@ -145,6 +156,7 @@
             console.error(e);
             err = t.sharedDevice.registerErr;
         }
+        password = '';
         isLoading = false;
     }
 </script>
@@ -172,6 +184,20 @@
                         .replace('{label}', info.label)
                         .replace('{practice}', info.practice_name)}
                 </p>
+                {#if info.password_allowed}
+                    <label
+                        ><input type="checkbox" bind:checked={usePassword} /> Mit Kontopasswort bestätigen</label
+                    >
+                    {#if usePassword}
+                        <label for="coupling-password">Passwort des Praxiskontos</label>
+                        <input
+                            id="coupling-password"
+                            type="password"
+                            autocomplete="current-password"
+                            bind:value={password}
+                        />
+                    {/if}
+                {/if}
                 <form novalidate onsubmit={onConfirm}>
                     {#if info.needs_risk_ack}
                         <div class="risk" role="note">
@@ -198,7 +224,9 @@
                         aria-busy={isLoading}
                     >
                         <IconKey width="1.2rem" />
-                        {t.sharedDevice.registerSubmit}
+                        {usePassword
+                            ? 'Mit Passwort bestätigen und koppeln'
+                            : t.sharedDevice.registerSubmit}
                     </button>
                 </form>
                 {#if err}

@@ -104,7 +104,9 @@
 
     $effect(() => {
         let view = viewParam.get();
-        if (view === 'mfa') {
+        if (view === 'password' && showPasswordTab) {
+            selected = t.common.password;
+        } else if (view === 'mfa') {
             selected = t.account.navMfa;
         } else if (view === 'devices') {
             selected = t.account.devices;

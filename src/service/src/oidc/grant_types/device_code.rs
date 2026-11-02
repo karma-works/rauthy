@@ -4,6 +4,7 @@ use chrono::Utc;
 use rauthy_api_types::oidc::{OAuth2ErrorResponse, OAuth2ErrorTypeResponse, TokenRequest};
 use rauthy_common::utils::new_store_id;
 use rauthy_data::entity::clients::Client;
+use rauthy_data::entity::clients_dyn::ClientDyn;
 use rauthy_data::entity::devices::{DeviceAuthCode, DeviceEntity};
 use rauthy_data::entity::users::User;
 use rauthy_data::events::event::Event;
@@ -131,6 +132,17 @@ pub async fn grant_type_device_code(peer_ip: IpAddr, payload: TokenRequest) -> H
             }
         };
 
+        // the code was issued for a deleted client with the same id
+        if !code.is_for_client(&client) {
+            if let Err(err) = code.delete().await {
+                error!(?err, "deleting DeviceAuthCode");
+            }
+            return HttpResponse::BadRequest().json(OAuth2ErrorResponse {
+                error: OAuth2ErrorTypeResponse::ExpiredToken,
+                error_description: Some(Cow::from("invalid `device_code` or request has expired")),
+            });
+        }
+
         let access_exp = now.add(chrono::Duration::seconds(
             client.access_token_lifetime as i64,
         ));
@@ -193,6 +205,7 @@ pub async fn grant_type_device_code(peer_ip: IpAddr, payload: TokenRequest) -> H
             // This is a better UX than asking for a custom name each time.
             // TODO add an optional `name` param to the initial device request?
             name: id.clone(),
+            client_created_micros: code.client_created_micros,
         };
         if let Err(err) = device.insert().await {
             error!("{:?}", err);
@@ -202,6 +215,16 @@ pub async fn grant_type_device_code(peer_ip: IpAddr, payload: TokenRequest) -> H
             });
         }
         debug!("New Device with ID {id} has been created");
+
+        // update timestamp if it is a dynamic client
+        if client.is_dynamic()
+            && let Err(err) = ClientDyn::update_used(&client.id).await
+        {
+            error!(
+                "Error updating last_used timestamp for dyn client: {}",
+                err.message
+            );
+        }
 
         let ts = match TokenSet::from_user(
             &user,
