@@ -7,8 +7,8 @@
 
 AI-assisted and agent-authored contributions are welcome and follow the same code, security,
 testing, and review standards; there is no separate AI-specific approval or Draft PR requirement.
-Contributors must understand and validate their changes. Run `just pre-pr-checks` before a PR
-(Postgres tests may be skipped when no custom queries were modified).
+Contributors validate changes. Local agents open PRs as `arztagent-bot` for owner review.
+Run `just pre-pr-checks` before a PR (Postgres tests may be skipped without custom query changes).
 
 ## Repository layout
 
@@ -46,10 +46,10 @@ Handlers live in `src/api/src/<area>.rs`, business logic in the matching module 
 `src/service/src/` (simple requests go straight to `src/data/src/`), and DB-touching entity methods
 in `src/data/src/entity/<entity>.rs`. Areas include: `oidc`, `pam`, `users`, `clients`, `groups`,
 `roles`, `scopes`, `sessions`, `api_keys`, `auth_providers`, `backup`, `blacklist`, `email`,
-`events`, `fed_cm`, `kv`, `tos`, `themes`, `atproto`, `shared_devices` (PIN login on shared PCs), `practice_roles` (optional shared roles and locks).
+`events`, `fed_cm`, `kv`, `tos`, `themes`, `atproto`, `shared_devices` (PIN login on shared PCs),
+`practice_roles` (optional shared roles and locks).
 
-Entity files contain the struct and DB/cache methods
-(`find_*`, `create`, `update`, `save`, `delete`).
+Entity files contain structs and DB/cache methods (`find_*`, `create`, `update`, `save`, `delete`).
 
 ### Notable deviations from the pattern
 

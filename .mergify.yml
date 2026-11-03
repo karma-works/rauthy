@@ -1,0 +1,27 @@
+merge_protections_settings:
+  auto_merge_conditions:
+    - base = main
+    - approved-reviews-by = karma-works
+
+merge_protections:
+  - name: Owner review
+    if:
+      - base = main
+      - -draft
+    success_conditions:
+      - approved-reviews-by = karma-works
+
+merge_queue:
+  # Use queue PRs for checks rather than updating an already reviewed branch.
+  max_parallel_checks: 2
+
+queue_rules:
+  - name: default
+    merge_method: merge
+    batch_size: 1
+    branch_protection_injection_mode: queue
+    queue_conditions:
+      - base = main
+      - check-success = @github-actions/Check Code Style
+      - check-success = @github-actions/Tests
+      - check-success = @github-actions/Security scan
