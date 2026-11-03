@@ -43,7 +43,7 @@ jobs:
       count: ${{ steps.plan.outputs.count }}
       agent: ${{ steps.agent.outputs.available }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Agent available
@@ -74,7 +74,7 @@ jobs:
       matrix:
         item: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Request the autofix and commit it to the alert branch
@@ -82,7 +82,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           ALERT: ${{ matrix.item.alert }}
         run: python3 arztagent/copilot_findings.py autofix --alert "$ALERT" --out "$RUNNER_TEMP/finding"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: finding-${{ matrix.item.alert }}-autofix
           path: ${{ runner.temp }}/finding
@@ -105,12 +105,12 @@ jobs:
       matrix:
         item: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: copilot-autofix/alert-${{ matrix.item.alert }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: finding-${{ matrix.item.alert }}-autofix
           path: ${{ runner.temp }}/finding
@@ -142,7 +142,7 @@ jobs:
             --disallowedTools WebFetch WebSearch | tee "$RUNNER_TEMP/claude.log"
       - name: Commit and bundle
         run: python3 arztagent/copilot_findings.py finalize --out "$RUNNER_TEMP/finding"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: finding-${{ matrix.item.alert }}
           path: ${{ runner.temp }}/finding
@@ -166,10 +166,10 @@ jobs:
         item: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
       # Keeps the workflow token for the push; this job uploads no artifacts.
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4  # zizmor: ignore[artipacked]
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4  # zizmor: ignore[artipacked]
         with:
           fetch-depth: 0
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         id: download
         continue-on-error: true
         with:
