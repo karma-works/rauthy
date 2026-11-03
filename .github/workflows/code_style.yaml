@@ -18,7 +18,10 @@ permissions:
 
 jobs:
   check:
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    # Mergify checks the merged result in a draft queue PR; it needs the same style check.
+    if: >-
+      github.event_name != 'pull_request' || github.event.pull_request.draft == false ||
+      startsWith(github.head_ref, 'mergify/merge-queue/')
     name: Check Code Style
     runs-on: ubuntu-latest
     container:
