@@ -34,11 +34,11 @@ Danach öffnet ArztAgent (`rauthy-image-bump.yml`) selbst den PR für `ops/rauth
    Nur danach pusht er ohne Force, öffnet den PR und stößt die drei CI-Workflows an.
 5. Ein neuerer Upstream-Stand ersetzt offene Sync-PRs desselben Repos und Zielbranches.
 
-**Review:** Ein Mensch mergt: `@mergifyio queue` als Kommentar, Mergify prüft den Merge-Stand in
-einem Queue-PR und mergt nach erfolgreichem CI. Im Mergify-Dashboard muss `Merge Queue` für dieses Repo
-aktiviert sein. Bei KI-gelösten Konflikten jede genannte Datei
-lesen und Fork-Härtungen (force_mfa, Passkeys, Wiederherstellungscodes) erhalten. Bundle und
-Notizen sind nicht vertrauenswürdig.
+**Review:** Ein Mensch mergt: `@mergifyio queue` als Kommentar, Mergify prüft den Merge-Stand
+in einem Queue-PR und mergt nach erfolgreichem CI. Im Mergify-Dashboard muss `Merge Queue` für
+dieses Repo aktiviert sein. Bei KI-gelösten Konflikten jede genannte Datei lesen und
+Fork-Härtungen (force_mfa, Passkeys, Wiederherstellungscodes) erhalten. Bundle und Notizen sind
+nicht vertrauenswürdig.
 
 ## Copilot-Befunde (`arztagent/copilot_findings.py`)
 
