@@ -27,7 +27,7 @@
         "@sveltejs/vite-plugin-svelte": "^7.1.2",
         "@types/node": "^25.9.0",
         "base64-arraybuffer": "^1.0.2",
-        "eslint": "^10.0.1",
+        "eslint": "^10.15.0",
         "eslint-config-prettier": "^10.0.2",
         "eslint-plugin-svelte": "^3.0.2",
         "prettier": "^3.1.0",
