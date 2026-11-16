@@ -46,7 +46,9 @@ Handlers live in `src/api/src/<area>.rs`, business logic in the matching module 
 `src/service/src/` (simple requests go straight to `src/data/src/`), and DB-touching entity methods
 in `src/data/src/entity/<entity>.rs`. Areas include: `oidc`, `pam`, `users`, `clients`, `groups`,
 `roles`, `scopes`, `sessions`, `api_keys`, `auth_providers`, `backup`, `blacklist`, `email`,
-`events`, `fed_cm`, `kv`, `tos`, `themes`, `atproto`, `shared_devices` (PIN login on shared PCs), `practice_roles` (optional shared roles and locks).
+`events`, `fed_cm`, `kv`, `tos`, `themes`, `atproto`, `shared_devices` (PIN login on shared PCs).
+`practice_roles` (optional shared roles and locks) has only an entity
+(`data/src/entity/practice_roles.rs`), used from `api/src/shared_devices.rs` and `api/src/oidc.rs`.
 
 Entity files contain the struct and DB/cache methods
 (`find_*`, `create`, `update`, `save`, `delete`).
@@ -76,5 +78,5 @@ Entity files contain the struct and DB/cache methods
 
 - Point at **functions**, not line numbers — line numbers rot, function names are stable.
 - Document *where* things are and what invariants must hold; don't re-explain code step by step.
-- Keep this file an index (hard 80 lines, as all markdown files)
+- Keep this file an index (hard 80 lines).
 - Module-level `//!` docs are the authoritative local reference where present.
