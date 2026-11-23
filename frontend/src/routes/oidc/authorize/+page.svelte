@@ -418,7 +418,11 @@
             payload.resource = resource;
         }
 
-        if (needsPassword && !residentKeyToken && email !== existingMfaUser) {
+        // The split password card always sends the password: a stored MFA cookie
+        // (`MfaLogin <email>`) would otherwise drop it and Rauthy asks for the passkey
+        // instead of the e-mail code.
+        const passwordCard = isSplit && splitCard === 'password';
+        if (needsPassword && !residentKeyToken && (passwordCard || email !== existingMfaUser)) {
             if (!password) {
                 err = t.authorize.passwordRequired;
                 isLoading = false;

@@ -153,7 +153,7 @@
 
     {#if passwordEnabled}
         <details class="card">
-            <summary>Mit Passwort anmelden</summary>
+            <summary>{t.splitLogin.passwordLogin}</summary>
             <form
                 onsubmit={event => {
                     event.preventDefault();
@@ -170,7 +170,7 @@
                     required
                     disabled={busy}
                 />
-                <label for="practice-password">Passwort</label>
+                <label for="practice-password">{t.common.password}</label>
                 <input
                     id="practice-password"
                     name="password"
@@ -182,7 +182,7 @@
                     disabled={busy}
                 />
                 <button type="submit" class="secondary" disabled={busy}
-                    >Mit Passwort anmelden</button
+                    >{t.splitLogin.passwordLogin}</button
                 >
             </form>
             {#if errPassword}<p role="alert">{errPassword}</p>{/if}
