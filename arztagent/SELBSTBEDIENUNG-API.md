@@ -82,6 +82,26 @@ Token: 32 Zeichen, gilt 120 s (fest, `MfaModToken::new`), gebunden an User und I
    Ohne Token: 400 „missing `mfa_mod_token_id`“. Den letzten Passkey eines Passkey-only-Kontos
    lehnt Rauthy mit 400 ab (`AccountType::may_remove_own_passkey`); Admins dürfen ihn löschen.
 
+### Passwort mit E-Mail-Code (ArztAgent, 23.11.2026)
+
+Ein Passkey-Konto darf zusätzlich ein Passwort haben, wenn ein E-Mail-Code aktiv ist. Eine
+Anmeldung **mit Passwort** fragt dann den Code aus der E-Mail statt des Passkeys ab
+(`service/src/oidc/authorize.rs::second_factor`, `amr` = `["otp"]`). Eine Anmeldung ohne
+Passwort (Resident Key, MFA-Cookie) bleibt beim Passkey und fragt keinen Code. Die
+Praxis-Passwortanmeldung aus `shared_devices.password_login` ist davon unberührt.
+
+1. mfa_mod_token holen (siehe oben).
+2. `POST /users/{id}/otp` mit `{"otp_kind":"email","otp_name":"E-Mail","mfa_mod_token_id":…}` →
+   201 `{id, kind, is_active:false, …}`; Rauthy schickt den Code per Mail. Ein inaktiver Eintrag
+   wird wiederverwendet (neuer Code); ein aktiver ergibt 406.
+3. `PUT /users/{id}/otp` mit `{otp_id, otp_code, mfa_mod_token_id}` → 200. Falscher Code 400,
+   abgelaufenes Token (120 s) 401.
+4. Passkey-Zeremonie mit `{"purpose":"PasswordNew"}` (Schritte 1–3 oben) → `code`.
+5. `PUT /users/{id}/self` mit `password_new`, `mfa_code` und den unveränderten Feldern
+   `given_name`, `family_name`, `language`, `user_values` (Rauthy schreibt sie wie gesendet).
+   Ohne aktiven E-Mail-Code lehnt Rauthy das Passwort eines Passkey-Kontos mit 400 ab, solange
+   `WEBAUTHN_PASSKEY_ACCOUNTS_NO_PASSWORD=true` (`entity/users.rs::update_self_req`).
+
 ## 4. Fehlercodes
 
 Fehler-Body ist JSON `{timestamp, error, message}` (`ErrorResponse`). Bei 401 kommt zusätzlich

@@ -158,7 +158,8 @@ pub async fn post_authorize(
         ));
     }
 
-    let practice_password = req_data.password.is_some()
+    let password_given = req_data.password.is_some();
+    let practice_password = password_given
         && rauthy_data::entity::shared_devices::is_password_client(&req_data.client_id);
     if let Some(pwd) = req_data.password {
         *has_password_been_hashed = true;
@@ -211,12 +212,13 @@ pub async fn post_authorize(
     client.validate_flow(GrantType::AuthorizationCode)?;
     let header_origin = client.get_validated_origin_header(req)?;
 
-    // Webauthn overrides otp.
-    // If we had a Resident Key authentication already, there is no need for another Webauthn
-    // request.
-    let require_webauthn =
-        !is_rk_authenticated && !practice_password && user.has_webauthn_enabled();
-    let require_otp = !practice_password && !require_webauthn && user.has_otp_enabled().await;
+    let (require_webauthn, require_otp) = second_factor(SecondFactorInput {
+        rk_authenticated: is_rk_authenticated,
+        practice_password,
+        password_given,
+        has_webauthn: user.has_webauthn_enabled(),
+        has_otp: user.has_otp_enabled().await,
+    });
     if require_webauthn || require_otp {
         *user_needs_mfa = true;
     }
@@ -606,9 +608,101 @@ pub(crate) async fn finish_authorize(
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct SecondFactorInput {
+    rk_authenticated: bool,
+    practice_password: bool,
+    password_given: bool,
+    has_webauthn: bool,
+    has_otp: bool,
+}
+
+/// `(require_webauthn, require_otp)` for a credential login.
+///
+/// Webauthn overrides otp, and a Resident Key login has finished its Webauthn ceremony already,
+/// so it asks for neither (an active e-mail code must not turn a passkey login into a code login).
+/// ArztAgent (PLAN-ERSTANMELDUNG.md E2): a person who set a password next to the passkey signs in
+/// with that password and the e-mail code. When an OTP is active, a login with the password
+/// therefore asks for the code instead of the passkey; a login without password keeps asking for
+/// the passkey. The explicit practice password login of `shared_devices` stays one factor.
+fn second_factor(input: SecondFactorInput) -> (bool, bool) {
+    if input.practice_password {
+        return (false, false);
+    }
+    let password_with_otp = input.password_given && input.has_otp;
+    let require_webauthn = !input.rk_authenticated && input.has_webauthn && !password_with_otp;
+    let require_otp = !input.rk_authenticated && !require_webauthn && input.has_otp;
+    (require_webauthn, require_otp)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::emails_match;
+    use super::{SecondFactorInput, emails_match, second_factor};
+
+    fn input() -> SecondFactorInput {
+        SecondFactorInput {
+            rk_authenticated: false,
+            practice_password: false,
+            password_given: true,
+            has_webauthn: true,
+            has_otp: false,
+        }
+    }
+
+    #[test]
+    fn password_and_passkey_without_otp_asks_for_the_passkey() {
+        assert_eq!(second_factor(input()), (true, false));
+    }
+
+    #[test]
+    fn password_and_passkey_with_otp_asks_for_the_code() {
+        let input = SecondFactorInput {
+            has_otp: true,
+            ..input()
+        };
+        assert_eq!(second_factor(input), (false, true));
+    }
+
+    #[test]
+    fn login_without_password_keeps_the_passkey() {
+        let input = SecondFactorInput {
+            password_given: false,
+            has_otp: true,
+            ..input()
+        };
+        assert_eq!(second_factor(input), (true, false));
+    }
+
+    #[test]
+    fn resident_key_login_needs_no_second_ceremony() {
+        let input = SecondFactorInput {
+            rk_authenticated: true,
+            password_given: false,
+            has_otp: true,
+            ..input()
+        };
+        assert_eq!(second_factor(input), (false, false));
+    }
+
+    #[test]
+    fn password_only_account_with_otp_asks_for_the_code() {
+        let input = SecondFactorInput {
+            has_webauthn: false,
+            has_otp: true,
+            ..input()
+        };
+        assert_eq!(second_factor(input), (false, true));
+    }
+
+    #[test]
+    fn practice_password_login_stays_one_factor() {
+        let input = SecondFactorInput {
+            practice_password: true,
+            has_otp: true,
+            ..input()
+        };
+        assert_eq!(second_factor(input), (false, false));
+    }
 
     #[test]
     fn test_emails_match() {

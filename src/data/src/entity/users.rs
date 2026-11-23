@@ -1384,13 +1384,18 @@ LIMIT $2"#;
 
         let mut password = None;
         if let Some(pwd_new) = upd_user.password_new {
-            if !user.account_type().may_add_password_self(
-                RauthyConfig::get()
-                    .vars
-                    .webauthn
-                    .passkey_accounts_no_password
-                    && !RauthyConfig::get().vars.shared_devices.password_login,
-            ) {
+            // ArztAgent (PLAN-ERSTANMELDUNG.md E2): with an active e-mail code, a password login
+            // asks for that code, so a passkey account may add a password then.
+            let passkey_accounts_no_password = RauthyConfig::get()
+                .vars
+                .webauthn
+                .passkey_accounts_no_password
+                && !RauthyConfig::get().vars.shared_devices.password_login
+                && !user.has_otp_enabled().await;
+            if !user
+                .account_type()
+                .may_add_password_self(passkey_accounts_no_password)
+            {
                 return Err(ErrorResponse::new(
                     ErrorResponseType::BadRequest,
                     "A passkey-only account cannot set a password",
