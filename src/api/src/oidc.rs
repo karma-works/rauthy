@@ -224,9 +224,10 @@ pub async fn get_authorize(
     templates.push(HtmlTemplate::PasskeyRegType);
     templates.push(HtmlTemplate::LegalLinks);
     templates.push(HtmlTemplate::LoginLayout(login_layout));
-    templates.push(HtmlTemplate::PracticePassword(
+    templates.push(HtmlTemplate::PracticePassword(show_password_card(
         shared_devices::is_password_client(&client.id),
-    ));
+        RauthyConfig::get().vars.otp.enable,
+    )));
     templates.push(HtmlTemplate::RecoveryCodes);
     if let Some(device) = &shared_device {
         let practice = SharedDevicePractice::find(&device.practice_id).await?;
@@ -1435,4 +1436,27 @@ pub async fn get_well_known_oauth_rfc8414() -> Result<HttpResponse, ErrorRespons
 #[get("/.well-known/oauth-authorization-server/auth/v1/")]
 pub async fn get_well_known_oauth_rfc8414_trailing() -> Result<HttpResponse, ErrorResponse> {
     well_known_response().await
+}
+
+/// Whether the split login page offers the card "Mit Passwort anmelden".
+///
+/// ArztAgent (PLAN-ERSTANMELDUNG.md E2): besides the practice password clients of
+/// `shared_devices`, a person may sign in with a password plus the code from the e-mail,
+/// so the card is shown whenever e-mail codes are enabled. Without an active code, a password
+/// login of a passkey account still asks for the passkey.
+fn show_password_card(practice_password_client: bool, otp_enabled: bool) -> bool {
+    practice_password_client || otp_enabled
+}
+
+#[cfg(test)]
+mod password_card_tests {
+    use super::show_password_card;
+
+    #[test]
+    fn password_card_follows_practice_clients_and_email_codes() {
+        assert!(!show_password_card(false, false));
+        assert!(show_password_card(true, false));
+        assert!(show_password_card(false, true));
+        assert!(show_password_card(true, true));
+    }
 }
