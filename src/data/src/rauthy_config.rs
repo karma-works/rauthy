@@ -1197,9 +1197,15 @@ Your account has not been compromised and no data was leaked."#.into()),
                 },
                 email_otp: VarsTemplatesLanguages {
                     de: VarsTemplate {
-                        subject: "One Time Password".into(),
-                        header: "One Time Password for".into(),
-                        text: Some("Your OTP is the following:".into()),
+                        subject: "Ihr Einmalcode".into(),
+                        header: "Einmalcode für".into(),
+                        text: Some(
+                            "Geben Sie diesen Code auf der Seite ein, auf der Sie ihn angefordert \
+                            haben. Er gilt nur kurz und nur einmal. Geben Sie ihn nie weiter. \
+                            Haben Sie keinen Code angefordert, ändern Sie bitte Ihr Passwort. \
+                            Ihr Code:"
+                                .into(),
+                        ),
                         click_link: None,
                         validity: None,
                         expires: None,
@@ -5494,6 +5500,17 @@ pub fn err_t(key: &str, parent: &str, typ: &str) -> String {
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
+
+    #[test]
+    fn email_otp_is_german_for_german_accounts() {
+        let otp = Vars::default().templates.email_otp;
+        assert_eq!(otp.de.subject, "Ihr Einmalcode");
+        assert_eq!(otp.de.header, "Einmalcode für");
+        let text = otp.de.text.as_deref().unwrap_or_default();
+        assert!(text.ends_with("Ihr Code:"), "{text}");
+        assert!(!text.contains("OTP"), "{text}");
+        assert_eq!(otp.en.subject, "One Time Password");
+    }
 
     #[test]
     fn consent_enable() {
