@@ -251,6 +251,7 @@ export interface I18n {
         lostPrefix: string;
         lostLink: string;
         lostSuffix: string;
+        passwordLogin: string;
     };
     passkeyDevice: {
         kind: string;

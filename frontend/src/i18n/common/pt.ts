@@ -306,6 +306,7 @@ export const I18nPt: I18n = {
         lostPrefix: 'Lost your passkey?',
         lostLink: 'Continue with a recovery code',
         lostSuffix: 'or contact your administrator.',
+        passwordLogin: 'Sign in with password',
     },
     passkeyDevice: {
         kind: 'Device',

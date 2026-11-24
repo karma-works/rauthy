@@ -310,6 +310,7 @@ export const I18nDe: I18n = {
         lostPrefix: 'Passkey verloren?',
         lostLink: 'Mit Wiederherstellungscode fortfahren',
         lostSuffix: 'oder an Ihre Administration wenden.',
+        passwordLogin: 'Mit Passwort anmelden',
     },
     passkeyDevice: {
         kind: 'Gerät',

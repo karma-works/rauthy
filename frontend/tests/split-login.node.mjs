@@ -44,11 +44,21 @@ after(async () => browser?.close());
  */
 async function openLogin(
     t,
-    { layout, width = 1280, height = 800, authorize, recovery = false, finish, password = false },
+    {
+        layout,
+        width = 1280,
+        height = 800,
+        authorize,
+        recovery = false,
+        finish,
+        password = false,
+        lang = 'de',
+        loginAction = 'None',
+    },
 ) {
     const context = await browser.newContext({
         serviceWorkers: 'block',
-        locale: 'de-DE',
+        locale: lang === 'de' ? 'de-DE' : 'en-US',
         viewport: { width, height },
     });
     t.after(() => context.close());
@@ -67,7 +77,7 @@ async function openLogin(
     const templates = {
         tpl_client_name: 'ArztAgent',
         tpl_csrf_token: 'csrf-1',
-        tpl_login_action: 'None',
+        tpl_login_action: loginAction,
         tpl_passkey_reg_type: 'resident_key default',
         tpl_legal_links: JSON.stringify({
             imprint_url: 'https://example.com/impressum',
@@ -89,7 +99,7 @@ async function openLogin(
             return route.fulfill({
                 contentType: 'text/html',
                 body: html
-                    .replace('{{lang}}', 'de')
+                    .replace('{{lang}}', lang)
                     .replace(/\{%- for tpl in templates -%\}[\s\S]*?\{%- endfor %\}/, tpls),
             });
         }
@@ -458,6 +468,51 @@ test('password is an explicit additional method without a passkey ceremony', asy
         requests.some(request => request.includes('webauthn_start')),
         false,
     );
+});
+
+test('password card sends the password even with a stored MFA cookie', async t => {
+    // After an earlier login the browser holds `__Host-RauthyMfa`, and the page gets
+    // `MfaLogin <email>`. The password card must still send the password, otherwise Rauthy
+    // asks for the passkey instead of the e-mail code.
+    let submitted;
+    const { page, requests } = await openLogin(t, {
+        layout: 'split',
+        password: true,
+        loginAction: 'MfaLogin synthetic@example.com',
+        authorize: (route, body) => {
+            submitted = body;
+            return route.fulfill({ status: 401, json: { message: 'Invalid credentials' } });
+        },
+    });
+    await page.getByText('Mit Passwort anmelden', { exact: true }).first().click();
+    const emailInput = page.locator('#password-email');
+    assert.equal(await emailInput.inputValue(), 'synthetic@example.com');
+    await page.getByLabel('Passwort', { exact: true }).fill('synthetic-account-password');
+    const response = page.waitForResponse(
+        r => r.url().includes('/oidc/authorize') && r.request().method() === 'POST',
+    );
+    await page.getByRole('button', { name: 'Mit Passwort anmelden', exact: true }).click();
+    await response;
+    assert.equal(submitted.password, 'synthetic-account-password');
+    assert.equal(submitted.email, 'synthetic@example.com');
+    assert.equal(
+        requests.some(request => request.includes('webauthn_start')),
+        false,
+    );
+});
+
+test('password card is translated for an English browser', async t => {
+    const { page } = await openLogin(t, {
+        layout: 'split',
+        password: true,
+        lang: 'en',
+        authorize: () => assert.fail('must not log in'),
+    });
+    await page.getByText('Sign in with password', { exact: true }).first().click();
+    await page.getByLabel('Password', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Sign in with password', exact: true }).waitFor();
+    assert.equal(await page.getByText('Mit Passwort anmelden').count(), 0);
+    assert.equal(await page.getByText('Passwort', { exact: true }).count(), 0);
 });
 
 test('password option is absent without explicit client configuration', async t => {
